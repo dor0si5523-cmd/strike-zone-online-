@@ -38,16 +38,13 @@ test('development shortcut opens character creation without login or realm selec
   expect(blocked).toEqual([]);
 });
 
-test('desktop login, RPG movement, attack and persistent character save',async({page})=>{
+test('desktop login starts automatic combat and persists character save',async({page})=>{
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
   const user=await createAccount(page);
   const before=await page.evaluate(()=>window.__rpgInspect());expect(before.classId).toBe('warrior');
-  await page.evaluate(()=>document.activeElement?.blur());
-  await page.keyboard.down('KeyD');await page.waitForTimeout(900);await page.keyboard.up('KeyD');
+  await expect.poll(async()=>{const state=await page.evaluate(()=>window.__rpgInspect());return state.autoHunt&&(state.x!==before.x||state.y!==before.y)},{timeout:20000}).toBeTruthy();
+  await expect.poll(async()=>page.evaluate(()=>window.__rpgInspect().attackActive),{timeout:20000}).toBeTruthy();
   const moved=await page.evaluate(()=>window.__rpgInspect());
-  expect(moved.x-before.x).toBeGreaterThan(35);
-  await page.keyboard.press('Space');
-  expect(await page.evaluate(()=>window.__rpgInspect().attackActive)).toBeTruthy();
   const saved=await page.evaluate(async user=>{
     const token=sessionStorage.getItem('ashenValeToken'),s=window.__rpgInspect();
     const item={id:'test_epic_blade',name:'시험 영웅검',slot:'weapon',rarity:'epic',atk:29,def:2,enhance:3};
@@ -65,34 +62,32 @@ test('desktop login, RPG movement, attack and persistent character save',async({
   expect(errors).toEqual([]);
 });
 
-test('mobile character creation selects the gunner class and shows touch controls',async({browser})=>{
+test('mobile character creation selects gunner with automatic combat controls only',async({browser})=>{
   const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:1});
   const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
   await createAccount(page,'gunner');
   expect(await page.evaluate(()=>window.__rpgInspect().classId)).toBe('gunner');
-  await expect(page.locator('#stick')).toBeVisible();
-  await expect(page.locator('#attack')).toBeVisible();
-  await expect(page.locator('#potion-use')).toBeVisible();
-  await expect(page.locator('#auto-hunt-mobile')).toBeVisible();
-  await page.locator('#auto-hunt-mobile').click();
+  await expect(page.locator('#stick')).toHaveCount(0);
+  await expect(page.locator('#attack')).toHaveCount(0);
+  await expect(page.locator('#potion-use')).toHaveCount(0);
+  await expect(page.locator('#auto-hunt-mobile')).toHaveCount(0);
   expect(await page.evaluate(()=>window.__rpgInspect().autoHunt)).toBeTruthy();
   expect(await page.evaluate(()=>window.__rpgInspect().playing)).toBeTruthy();
   expect(errors).toEqual([]);
   await context.close();
 });
 
-test('auto hunt roams to monsters and kills them; gear panel shows equipment slots',async({page})=>{
+test('automatic combat roams and kills without gear farming; gacha remains available',async({page})=>{
   const user=await createAccount(page,'archer');
   const before=await page.evaluate(()=>window.__rpgInspect());
-  await page.locator('#auto-hunt').click();
-  await expect(page.locator('#auto-hunt')).toHaveAttribute('aria-pressed','true');
+  expect(before.autoHunt).toBeTruthy();
   await expect.poll(async()=>{const state=await page.evaluate(()=>window.__rpgInspect());return state.attackEffects.some(effect=>effect.kind==='archer')},{timeout:35000}).toBeTruthy();
   await expect.poll(async()=>{const state=await page.evaluate(()=>window.__rpgInspect());return state.kills>0&&state.x!==before.x||state.kills>0&&state.y!==before.y},{timeout:35000}).toBeTruthy();
   await page.locator('#bag-open').click();
   await expect(page.locator('#equipment-slots .gear-slot')).toHaveCount(4);
   await expect(page.locator('#combat-power')).not.toBeEmpty();
   await page.locator('#bag-close').click();
-  expect(await page.evaluate(()=>window.__rpgInspect().items.length)).toBeGreaterThanOrEqual(4);
+  expect(await page.evaluate(()=>window.__rpgInspect().items.length)).toBe(4);
 });
 
 test('server roster has three character slots with class choice and deletion',async({page})=>{
