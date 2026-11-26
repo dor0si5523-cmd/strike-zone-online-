@@ -43,3 +43,5 @@
 .gear-tools{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}.gear-tools label{display:grid;gap:4px;font-size:12px}.gear-tools button{grid-column:1/-1}.loot-info span{line-height:1.5}
 
 .growth-list{display:grid;gap:8px}.growth-list .activity-row{margin:0}.growth-list .activity-row small{line-height:1.45}
+
+.record-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0}.record-stats article{display:grid;gap:5px;background:#101816;border:1px solid #394640;border-radius:10px;padding:10px}.record-stats small{font-size:11px;color:#a9b6ac}.record-stats b{font-size:18px;color:#f0cf8b}.bestiary-list{display:grid;gap:6px}.bestiary-entry{display:flex;justify-content:space-between;padding:9px 11px;border-bottom:1px solid #394640}
