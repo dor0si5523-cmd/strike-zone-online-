@@ -2,7 +2,7 @@
 
 Ashen Vale is a mobile and desktop browser RPG with automatic combat. Characters choose one of four classes (warrior, archer, mage, or pirate gunner), progress through three level-gated regions, and fight region monsters and bosses. Gear is obtained through gold or free-cash summons; monster hunts do not award equipment. Duplicate conversion, summon pity, summon history, enhancements, and inventory management are included.
 
-Character saves include auto-combat preferences, attendance and hunt rewards, region progress, companion growth, achievements, mailbox claims, monster collection, and personal records. Optional account community systems include opt-in character rankings, invitation-code clans, member-only clan rosters, and a shared weekly clan hunt. Rankings show only the chosen alias, class, level, and score; account IDs and credentials are never published in ranking entries.
+Character saves include auto-combat preferences, attendance and hunt rewards, region progress, companion growth, achievements, mailbox claims, monster collection, and personal records. Optional account community systems include opt-in character rankings, invitation-code clans, member-only clan rosters, and a shared weekly clan hunt. Authenticated players can also create or join real-time co-op regional boss raids for up to four characters; raid room membership shares only the selected character name, class, level, and raid damage with room participants. Rankings show only the chosen alias, class, level, and score; account IDs and credentials are never published in ranking entries.
 
 ## Run locally
 
@@ -31,4 +31,4 @@ The in-game notice and operations panel is limited to usernames in the Render en
 
 ## Gameplay
 
-Combat and movement run automatically while the game is open. Configure engagement range, target selection, and potion use in the equipment panel. Touch controls are not needed for movement or attacking. The game does not process real-money payments.
+Combat and movement run automatically while the game is open. Configure engagement range, target selection, and potion use in the equipment panel. Touch controls are not needed for movement or attacking. The game does not process real-money payments. Real-time raids use Socket.IO and require an authenticated account character; the browser-only development character cannot join online rooms.

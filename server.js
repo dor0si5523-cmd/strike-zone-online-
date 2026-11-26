@@ -1,9 +1,12 @@
 const express = require('express');
 const crypto = require('node:crypto');
 const http = require('node:http');
+const { Server: SocketServer } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
+const io = new SocketServer(server, { maxHttpBufferSize: 16 * 1024, pingInterval: 25000, pingTimeout: 20000 });
+const liveRaids = new Map();
 const port = Number(process.env.PORT) || 3000;
 const sessions = new Map();
 const attempts = new Map();
@@ -761,4 +764,80 @@ app.post('/api/rpg/gacha', async (req, res) => {
   }
 });
 
+function raidRoomView(raid) {
+  return { code: raid.code, zoneId: raid.zoneId, bossName: raid.bossName, hp: raid.hp, maxHp: raid.maxHp, cleared: raid.cleared, members: [...raid.members.values()].map(member => ({ name: member.name, classId: member.classId, level: member.level, damage: member.damage })) };
+}
+async function loadRaidCharacter(session) {
+  const account = await readMember(session.user);
+  const character = serverCharacters(account || {}, session.serverId).find(item => item.id === session.characterId);
+  if (!character) throw new Error('캐릭터 정보를 찾을 수 없습니다.');
+  const state = sanitizeRpg(character.state || DEFAULT_RPG);
+  const level = characterLevel(state.xp).level;
+  const equipment = Object.keys(state.equipment).map(slot => state.items.find(item => item.id === state.equipment[slot])).filter(Boolean);
+  const attack = level * 2 + equipment.reduce((sum, item) => sum + item.atk + item.enhance * 2, 0) + Math.max(0, state.growth.petLevel - 1);
+  return { state, name: String(character.name || '모험가').slice(0, 12), classId: character.classId, level, attack };
+}
+function removeRaidMember(socket) {
+  const code = socket.data.raidCode;
+  if (!code) return;
+  const raid = liveRaids.get(code);
+  socket.data.raidCode = null;
+  socket.leave(code);
+  if (!raid) return;
+  raid.members.delete(socket.id);
+  if (!raid.members.size) { clearTimeout(raid.expiry); liveRaids.delete(code); }
+  else io.to(code).emit('raid:state', raidRoomView(raid));
+}
+async function enterRaid(socket, code, ack) {
+  const session = socket.data.session;
+  try {
+    const character = await loadRaidCharacter(session), target = liveRaids.get(String(code || '').toUpperCase());
+    if (!target) throw new Error('레이드 방을 찾을 수 없습니다.');
+    if (target.serverId !== session.serverId) throw new Error('같은 서버의 캐릭터만 참가할 수 있습니다.');
+    if (target.zoneId !== character.state.zoneId) throw new Error('현재 지역이 같은 캐릭터만 참가할 수 있습니다.');
+    if (target.cleared) throw new Error('이미 토벌이 끝난 레이드입니다.');
+    if (target.members.size >= 4 && !target.members.has(socket.id)) throw new Error('레이드는 최대 4명까지 참가할 수 있습니다.');
+    removeRaidMember(socket);
+    const member = { name: character.name, classId: character.classId, level: character.level, attack: character.attack, damage: 0, lastAttack: 0, session: { user: session.user, serverId: session.serverId, characterId: session.characterId } };
+    target.members.set(socket.id, member); socket.data.raidCode = target.code; await socket.join(target.code);
+    const view = raidRoomView(target); ack?.({ ok: true, raid: view }); io.to(target.code).emit('raid:state', view);
+  } catch (error) { ack?.({ ok: false, error: error.message || '레이드 참가에 실패했습니다.' }); }
+}
+io.use((socket, next) => {
+  const session = identity(String(socket.handshake.auth?.token || ''));
+  if (!session?.serverId || !session?.characterId) return next(new Error('로그인 후 캐릭터를 선택해 주세요.'));
+  socket.data.session = session;
+  next();
+});
+io.on('connection', socket => {
+  socket.emit('raid:ready', { ok: true });
+  socket.on('raid:create', async (_payload, ack) => {
+    try {
+      const session = socket.data.session, character = await loadRaidCharacter(session), boss = { forest: ['숲의 수호자', 12000], ashlands: ['잿빛 거신', 26000], moonharbor: ['심해 레비아탄', 52000] }[character.state.zoneId] || ['숲의 수호자', 12000];
+      removeRaidMember(socket);
+      let code; do { code = crypto.randomBytes(3).toString('hex').toUpperCase(); } while (liveRaids.has(code));
+      const raid = { code, serverId: session.serverId, zoneId: character.state.zoneId, bossName: boss[0], maxHp: boss[1], hp: boss[1], cleared: false, members: new Map(), expiry: setTimeout(() => { io.to(code).emit('raid:closed', { reason: '레이드 방이 만료되었습니다.' }); liveRaids.delete(code); }, 60 * 60 * 1000) };
+      liveRaids.set(code, raid);
+      await enterRaid(socket, code, ack);
+    } catch (error) { ack?.({ ok: false, error: error.message || '레이드 방 생성에 실패했습니다.' }); }
+  });
+  socket.on('raid:join', (payload, ack) => enterRaid(socket, payload?.code, ack));
+  socket.on('raid:leave', ack => { removeRaidMember(socket); ack?.({ ok: true }); socket.emit('raid:state', null); });
+  socket.on('raid:attack', ack => {
+    const raid = liveRaids.get(socket.data.raidCode), member = raid?.members.get(socket.id);
+    if (!raid || !member || raid.cleared) return ack?.({ ok: false, error: '참가 중인 레이드가 없습니다.' });
+    const cooldown = { warrior: 440, archer: 560, mage: 720, gunner: 300 }[member.classId] || 500, now = Date.now();
+    if (now - member.lastAttack < cooldown) return ack?.({ ok: false, cooldown: true });
+    member.lastAttack = now;
+    const multiplier = { warrior: 4.1, archer: 2.9, mage: 3.8, gunner: 2.55 }[member.classId] || 3;
+    const damage = Math.max(1, Math.round(member.attack * multiplier + member.level * 2));
+    member.damage += damage; raid.hp = Math.max(0, raid.hp - damage);
+    if (raid.hp <= 0) {
+      raid.cleared = true;
+      io.to(raid.code).emit('raid:clear', { raid: raidRoomView(raid), reward: { xp: 420, gold: 260 }, participants: [...raid.members.entries()].filter(([, active]) => active.damage > 0).map(([id]) => id), bossType: { forest: 'forest_guardian', ashlands: 'ash_golem', moonharbor: 'sea_leviathan' }[raid.zoneId] });
+    } else io.to(raid.code).emit('raid:state', { ...raidRoomView(raid), lastHit: { name: member.name, damage } });
+    ack?.({ ok: true, damage });
+  });
+  socket.on('disconnect', () => removeRaidMember(socket));
+});
 server.listen(port, '0.0.0.0');
