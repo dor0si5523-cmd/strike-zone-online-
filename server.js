@@ -40,7 +40,8 @@ function kstWeekKey(date = new Date()) {
   return monday.toISOString().slice(0, 10);
 }
 function previousDayKey(dayKey) { const previous = new Date(`${dayKey}T00:00:00Z`); previous.setUTCDate(previous.getUTCDate() - 1); return previous.toISOString().slice(0, 10); }
-const DEFAULT_RPG = Object.freeze({ xp: 0, gold: 40, cash: 300, kills: 0, questStage: 0, questKills: 0, potions: 3, x: 1300, y: 1070, hp: 100, items: STARTER_ITEMS, equipment: { weapon: 'starter_blade', armor: 'starter_coat', boots: 'starter_boots', ring: 'starter_ring' }, autoSettings: { range: 'balanced', target: 'nearest', potionAt: 45, autoQuest: true }, summonPity: { epic: 0, legendary: 0 }, summonHistory: [], attendance: { lastDay: '', streak: 0 }, daily: { dayKey: kstDayKey(), kills: 0, attendanceClaimed: false, missionClaimed: false }, weekly: { weekKey: kstWeekKey(), kills: 0, missionClaimed: false }, zoneId: 'forest', classId: 'warrior' });
+const RPG_UPGRADE_KEYS = ['attack', 'defense', 'maxHp', 'critChance', 'critDamage', 'goldGain', 'xpGain'];
+const DEFAULT_RPG = Object.freeze({ xp: 0, gold: 40, cash: 300, kills: 0, enhancements: { gold: Object.fromEntries(RPG_UPGRADE_KEYS.map(key => [key, 0])), stats: Object.fromEntries(RPG_UPGRADE_KEYS.map(key => [key, 0])) }, questStage: 0, questKills: 0, potions: 3, x: 1300, y: 1070, hp: 100, items: STARTER_ITEMS, equipment: { weapon: 'starter_blade', armor: 'starter_coat', boots: 'starter_boots', ring: 'starter_ring' }, autoSettings: { range: 'balanced', target: 'nearest', potionAt: 45, autoQuest: true }, summonPity: { epic: 0, legendary: 0 }, summonHistory: [], attendance: { lastDay: '', streak: 0 }, daily: { dayKey: kstDayKey(), kills: 0, attendanceClaimed: false, missionClaimed: false }, weekly: { weekKey: kstWeekKey(), kills: 0, missionClaimed: false }, zoneId: 'forest', classId: 'warrior' });
 const GACHA_PRICES = { gold: { 1: 500, 10: 4500 }, cash: { 1: 100, 10: 900 } };
 const GACHA_PITY = { epic: 30, legendary: 100 };
 const DUPLICATE_GOLD = { common: 80, uncommon: 150, rare: 350, epic: 1200, legendary: 4000 };
@@ -213,7 +214,10 @@ function sanitizeRpg(value = {}) {
     return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
   };
   const today = kstDayKey(), week = kstWeekKey(), dailySource = value.daily || {}, weeklySource = value.weekly || {}, attendanceSource = value.attendance || {};
-  const dailyIsCurrent = dailySource.dayKey === today, weeklyIsCurrent = weeklySource.weekKey === week;
+  const dailyIsCurrent = dailySource.dayKey === today, weeklyIsCurrent = weeklySource.weekKey === week, enhancementSource = value.enhancements || {}, enhancements = { gold: {}, stats: {} };
+  let statPoints = Math.max(0, (characterLevel(Math.floor(number('xp', 0, 999999, DEFAULT_RPG.xp))) - 1) * 5);
+  for (const key of RPG_UPGRADE_KEYS) { enhancements.gold[key] = Math.floor(numberFrom(enhancementSource.gold?.[key], 0, 50, 0)); const requested = Math.floor(numberFrom(enhancementSource.stats?.[key], 0, 100, 0)); enhancements.stats[key] = Math.min(requested, statPoints); statPoints -= enhancements.stats[key]; }
+  const maxHp = 100 + enhancements.gold.maxHp * 10 + enhancements.stats.maxHp * 5;
   return {
     xp: Math.floor(number('xp', 0, 999999, DEFAULT_RPG.xp)),
     gold: Math.floor(number('gold', 0, 9999999, DEFAULT_RPG.gold)),
@@ -224,7 +228,8 @@ function sanitizeRpg(value = {}) {
     potions: Math.floor(number('potions', 0, 99, DEFAULT_RPG.potions)),
     x: number('x', 48, WORLD.width - 48, DEFAULT_RPG.x),
     y: number('y', 48, WORLD.height - 48, DEFAULT_RPG.y),
-    hp: number('hp', 1, 100, DEFAULT_RPG.hp),
+    hp: number('hp', 1, maxHp, Math.min(100, maxHp)),
+    enhancements,
     items: Array.isArray(value.items) ? value.items.slice(0, 60).map((item, index) => ({
       id: String(item?.id || `gear_${index}`).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48),
       name: String(item?.name || '낡은 장비').slice(0, 32),
@@ -774,8 +779,9 @@ async function loadRaidCharacter(session) {
   const state = sanitizeRpg(character.state || DEFAULT_RPG);
   const level = characterLevel(state.xp).level;
   const equipment = Object.keys(state.equipment).map(slot => state.items.find(item => item.id === state.equipment[slot])).filter(Boolean);
-  const attack = level * 2 + equipment.reduce((sum, item) => sum + item.atk + item.enhance * 2, 0) + Math.max(0, state.growth.petLevel - 1);
-  return { state, name: String(character.name || '모험가').slice(0, 12), classId: character.classId, level, attack };
+  const attack = level * 2 + equipment.reduce((sum, item) => sum + item.atk + item.enhance * 2, 0) + Math.max(0, state.growth.petLevel - 1) + (state.enhancements.gold.attack + state.enhancements.stats.attack) * 2;
+  const enhancements = state.enhancements, critChance = Math.min(.75, .05 + (enhancements.gold.critChance + enhancements.stats.critChance) * .005), critDamage = 1.5 + enhancements.gold.critDamage * .03 + enhancements.stats.critDamage * .02;
+  return { state, name: String(character.name || '모험가').slice(0, 12), classId: character.classId, level, attack, critChance, critDamage };
 }
 function removeRaidMember(socket) {
   const code = socket.data.raidCode;
@@ -798,7 +804,7 @@ async function enterRaid(socket, code, ack) {
     if (target.cleared) throw new Error('이미 토벌이 끝난 레이드입니다.');
     if (target.members.size >= 4 && !target.members.has(socket.id)) throw new Error('레이드는 최대 4명까지 참가할 수 있습니다.');
     removeRaidMember(socket);
-    const member = { name: character.name, classId: character.classId, level: character.level, attack: character.attack, damage: 0, lastAttack: 0, session: { user: session.user, serverId: session.serverId, characterId: session.characterId } };
+    const member = { name: character.name, classId: character.classId, level: character.level, attack: character.attack, critChance: character.critChance, critDamage: character.critDamage, damage: 0, lastAttack: 0, session: { user: session.user, serverId: session.serverId, characterId: session.characterId } };
     target.members.set(socket.id, member); socket.data.raidCode = target.code; await socket.join(target.code);
     const view = raidRoomView(target); ack?.({ ok: true, raid: view }); io.to(target.code).emit('raid:state', view);
   } catch (error) { ack?.({ ok: false, error: error.message || '레이드 참가에 실패했습니다.' }); }
@@ -830,7 +836,7 @@ io.on('connection', socket => {
     if (now - member.lastAttack < cooldown) return ack?.({ ok: false, cooldown: true });
     member.lastAttack = now;
     const multiplier = { warrior: 4.1, archer: 2.9, mage: 3.8, gunner: 2.55 }[member.classId] || 3;
-    const damage = Math.max(1, Math.round(member.attack * multiplier + member.level * 2));
+    const baseDamage = Math.max(1, Math.round(member.attack * multiplier + member.level * 2)), critical = crypto.randomInt(10000) < member.critChance * 10000, damage = Math.round(baseDamage * (critical ? member.critDamage : 1));
     member.damage += damage; raid.hp = Math.max(0, raid.hp - damage);
     if (raid.hp <= 0) {
       raid.cleared = true;
