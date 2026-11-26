@@ -1,0 +1,28 @@
+name: Import game art batches
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/asset-batches.yml'
+permissions:
+  contents: write
+concurrency: game-art-import
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: |
+          git config user.name 'strike-zone-assets'
+          git config user.email 'actions@users.noreply.github.com'
+          for batch in 1 2 3 4; do
+            node scripts/import-batch.cjs
+            git add public/assets
+            if git diff --cached --quiet; then break; fi
+            git commit -m "Import verified CC0 art batch $batch"
+            git push
+          done
