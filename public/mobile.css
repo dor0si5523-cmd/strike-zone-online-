@@ -32,3 +32,4 @@
 @media(max-width:390px){.top-actions #cash{display:inline}}
 
 .auto-hunt-status{padding:7px 10px;border:1px solid #9ed18b66;border-radius:999px;color:#b8dd9a;font-size:10px;font-weight:800;white-space:nowrap}
+.dev-account-link{position:absolute;right:clamp(24px,5vw,52px);top:22px;color:#cdbb8e;font-size:12px;text-decoration:none}.dev-account-link:hover{color:#f0cf88;text-decoration:underline}

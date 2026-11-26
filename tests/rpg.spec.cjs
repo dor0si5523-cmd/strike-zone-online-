@@ -2,7 +2,7 @@ const {test,expect}=require('@playwright/test');
 
 async function createAccount(page,classId='warrior'){
   const user='rpg_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,5);
-  await page.goto('/');
+  await page.goto('/?account=1');
   await page.locator('#switch-auth').click();
   await page.locator('#uid').fill(user);
   await page.locator('#pw').fill('test-only-pass-123');
