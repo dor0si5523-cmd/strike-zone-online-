@@ -24,10 +24,10 @@ const GAME_ZONES = {
 };
 const CLASSES = ['warrior', 'archer', 'mage', 'gunner'];
 const STARTER_ITEMS = [
-  { id: 'starter_blade', name: '여행자의 철검', slot: 'weapon', rarity: 'common', atk: 4, def: 0, enhance: 0 },
-  { id: 'starter_coat', name: '숲지기 가죽옷', slot: 'armor', rarity: 'common', atk: 0, def: 3, enhance: 0 },
-  { id: 'starter_boots', name: '길잡이 장화', slot: 'boots', rarity: 'common', atk: 0, def: 1, enhance: 0 },
-  { id: 'starter_ring', name: '낡은 호박 반지', slot: 'ring', rarity: 'common', atk: 1, def: 0, enhance: 0 }
+  { id: 'starter_blade', visualKey: 'starter_blade', name: '여행자의 철검', slot: 'weapon', rarity: 'common', atk: 4, def: 0, enhance: 0 },
+  { id: 'starter_coat', visualKey: 'starter_coat', name: '숲지기 가죽옷', slot: 'armor', rarity: 'common', atk: 0, def: 3, enhance: 0 },
+  { id: 'starter_boots', visualKey: 'starter_boots', name: '길잡이 장화', slot: 'boots', rarity: 'common', atk: 0, def: 1, enhance: 0 },
+  { id: 'starter_ring', visualKey: 'starter_ring', name: '낡은 호박 반지', slot: 'ring', rarity: 'common', atk: 1, def: 0, enhance: 0 }
 ];
 function kstDayKey(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
@@ -232,6 +232,7 @@ function sanitizeRpg(value = {}) {
     enhancements,
     items: Array.isArray(value.items) ? value.items.slice(0, 60).map((item, index) => ({
       id: String(item?.id || `gear_${index}`).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48),
+      visualKey: String(item?.visualKey || (String(item?.id || '').startsWith('starter_') ? item.id : `${item?.slot || 'weapon'}_${item?.rarity || 'common'}`)).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48),
       name: String(item?.name || '낡은 장비').slice(0, 32),
       slot: ['weapon', 'armor', 'boots', 'ring'].includes(item?.slot) ? item.slot : 'weapon',
       rarity: ['common', 'uncommon', 'rare', 'epic', 'legendary'].includes(item?.rarity) ? item.rarity : 'common',
@@ -324,6 +325,7 @@ function generateGachaGear(level, forcedRarity = null) {
   const base = Math.max(1, Math.round(level * multiplier * (slot === 'weapon' ? 2.5 : 1)));
   return {
     id: 'gacha_' + crypto.randomUUID(),
+    visualKey: `${slot}_${rarity}`,
     name: `${prefix} ${GEAR_NAMES[slot][crypto.randomInt(GEAR_NAMES[slot].length)]}`,
     slot, rarity,
     atk: slot === 'weapon' ? base : Math.floor(base * .28),
