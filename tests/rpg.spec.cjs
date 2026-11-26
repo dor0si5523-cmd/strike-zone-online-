@@ -66,10 +66,11 @@ test('mobile character creation selects the gunner class and shows touch control
 });
 
 test('auto hunt roams to monsters and kills them; gear panel shows equipment slots',async({page})=>{
-  const user=await createAccount(page);
+  const user=await createAccount(page,'archer');
   const before=await page.evaluate(()=>window.__rpgInspect());
   await page.locator('#auto-hunt').click();
   await expect(page.locator('#auto-hunt')).toHaveAttribute('aria-pressed','true');
+  await expect.poll(async()=>{const state=await page.evaluate(()=>window.__rpgInspect());return state.attackEffects.some(effect=>effect.kind==='archer')},{timeout:35000}).toBeTruthy();
   await expect.poll(async()=>{const state=await page.evaluate(()=>window.__rpgInspect());return state.kills>0&&state.x!==before.x||state.kills>0&&state.y!==before.y},{timeout:35000}).toBeTruthy();
   await page.locator('#bag-open').click();
   await expect(page.locator('#equipment-slots .gear-slot')).toHaveCount(4);
