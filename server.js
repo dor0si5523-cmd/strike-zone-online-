@@ -228,6 +228,7 @@ function sanitizeRpg(value = {}) {
       missionClaimed: weeklyIsCurrent && weeklySource.missionClaimed === true
     },
     zoneId: GAME_ZONES[value.zoneId] && characterLevel(Math.floor(number('xp', 0, 999999, DEFAULT_RPG.xp))) >= GAME_ZONES[value.zoneId].requiredLevel ? value.zoneId : 'forest',
+    growth: { petLevel: Math.floor(numberFrom(value.growth?.petLevel, 1, 30, 1)), petExp: Math.floor(numberFrom(value.growth?.petExp, 0, 999999, 0)), bossKills: Math.floor(numberFrom(value.growth?.bossKills, 0, 999999, 0)), achievementClaims: Array.isArray(value.growth?.achievementClaims) ? value.growth.achievementClaims.filter(id => ['kills_10', 'kills_100', 'boss_1', 'level_10'].includes(id)).slice(0, 10) : [], mailClaims: Array.isArray(value.growth?.mailClaims) ? value.growth.mailClaims.filter(id => id === 'welcome_v1').slice(0, 10) : [] },
     classId: CLASSES.includes(value.classId) ? value.classId : 'warrior'
   };
 }
