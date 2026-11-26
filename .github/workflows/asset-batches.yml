@@ -26,3 +26,5 @@ jobs:
             git commit -m "Import verified CC0 art batch $batch"
             git push
           done
+
+# Requeue asset import
