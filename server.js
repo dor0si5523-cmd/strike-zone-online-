@@ -9,7 +9,13 @@ const sessions = new Map();
 const attempts = new Map();
 const memberBase = 'https://api.github.com/repos/dor0si5523-cmd/strike-zone-members/contents/';
 const WORLD = { width: 2600, height: 1900 };
-const DEFAULT_RPG = Object.freeze({ xp: 0, gold: 40, kills: 0, questStage: 0, questKills: 0, potions: 3, x: 1300, y: 1070, hp: 100 });
+const STARTER_ITEMS = [
+  { id: 'starter_blade', name: '여행자의 철검', slot: 'weapon', rarity: 'common', atk: 4, def: 0, enhance: 0 },
+  { id: 'starter_coat', name: '숲지기 가죽옷', slot: 'armor', rarity: 'common', atk: 0, def: 3, enhance: 0 },
+  { id: 'starter_boots', name: '길잡이 장화', slot: 'boots', rarity: 'common', atk: 0, def: 1, enhance: 0 },
+  { id: 'starter_ring', name: '낡은 호박 반지', slot: 'ring', rarity: 'common', atk: 1, def: 0, enhance: 0 }
+];
+const DEFAULT_RPG = Object.freeze({ xp: 0, gold: 40, kills: 0, questStage: 0, questKills: 0, potions: 3, x: 1300, y: 1070, hp: 100, items: STARTER_ITEMS, equipment: { weapon: 'starter_blade', armor: 'starter_coat', boots: 'starter_boots', ring: 'starter_ring' } });
 const testMembers = process.env.NODE_ENV === 'test' && process.env.SZ_TEST_LOCAL === '1' && !process.env.RENDER ? new Map() : null;
 
 app.disable('x-powered-by');
@@ -20,7 +26,7 @@ app.use((req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   next();
 });
-app.use(express.json({ limit: '8kb' }));
+app.use(express.json({ limit: '16kb' }));
 app.use(express.static('public', { setHeaders(res, file) {
   if (/\.(js|html|css|webmanifest)$/.test(file)) res.setHeader('Cache-Control', 'no-cache');
 } }));
@@ -116,6 +122,10 @@ function sanitizeRpg(value = {}) {
     const n = Number(value[key]);
     return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
   };
+  const numberFrom = (raw, min, max, fallback) => {
+    const n = Number(raw);
+    return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
+  };
   return {
     xp: Math.floor(number('xp', 0, 999999, DEFAULT_RPG.xp)),
     gold: Math.floor(number('gold', 0, 9999999, DEFAULT_RPG.gold)),
@@ -125,7 +135,22 @@ function sanitizeRpg(value = {}) {
     potions: Math.floor(number('potions', 0, 99, DEFAULT_RPG.potions)),
     x: number('x', 48, WORLD.width - 48, DEFAULT_RPG.x),
     y: number('y', 48, WORLD.height - 48, DEFAULT_RPG.y),
-    hp: number('hp', 1, 100, DEFAULT_RPG.hp)
+    hp: number('hp', 1, 100, DEFAULT_RPG.hp),
+    items: Array.isArray(value.items) ? value.items.slice(0, 60).map((item, index) => ({
+      id: String(item?.id || `gear_${index}`).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48),
+      name: String(item?.name || '낡은 장비').slice(0, 32),
+      slot: ['weapon', 'armor', 'boots', 'ring'].includes(item?.slot) ? item.slot : 'weapon',
+      rarity: ['common', 'uncommon', 'rare', 'epic', 'legendary'].includes(item?.rarity) ? item.rarity : 'common',
+      atk: Math.floor(numberFrom(item?.atk, 0, 300, 0)),
+      def: Math.floor(numberFrom(item?.def, 0, 300, 0)),
+      enhance: Math.floor(numberFrom(item?.enhance, 0, 5, 0))
+    })) : DEFAULT_RPG.items.map(item => ({ ...item })),
+    equipment: Object.fromEntries(['weapon', 'armor', 'boots', 'ring'].map(slot => {
+      const requested = String(value.equipment?.[slot] || '');
+      const equipped = requested && Array.isArray(value.items) && value.items.some(item => item?.id === requested && item?.slot === slot) ? requested : '';
+      const starter = !Array.isArray(value.items) ? DEFAULT_RPG.equipment[slot] : equipped;
+      return [slot, starter];
+    }))
   };
 }
 
