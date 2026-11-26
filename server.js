@@ -21,7 +21,7 @@ const STARTER_ITEMS = [
   { id: 'starter_boots', name: '길잡이 장화', slot: 'boots', rarity: 'common', atk: 0, def: 1, enhance: 0 },
   { id: 'starter_ring', name: '낡은 호박 반지', slot: 'ring', rarity: 'common', atk: 1, def: 0, enhance: 0 }
 ];
-const DEFAULT_RPG = Object.freeze({ xp: 0, gold: 40, cash: 300, kills: 0, questStage: 0, questKills: 0, potions: 3, x: 1300, y: 1070, hp: 100, items: STARTER_ITEMS, equipment: { weapon: 'starter_blade', armor: 'starter_coat', boots: 'starter_boots', ring: 'starter_ring' }, classId: 'warrior' });
+const DEFAULT_RPG = Object.freeze({ xp: 0, gold: 40, cash: 300, kills: 0, questStage: 0, questKills: 0, potions: 3, x: 1300, y: 1070, hp: 100, items: STARTER_ITEMS, equipment: { weapon: 'starter_blade', armor: 'starter_coat', boots: 'starter_boots', ring: 'starter_ring' }, autoSettings: { range: 'balanced', target: 'nearest', potionAt: 45, autoQuest: true }, classId: 'warrior' });
 const GACHA_PRICES = { gold: { 1: 500, 10: 4500 }, cash: { 1: 100, 10: 900 } };
 const GEAR_RARITY = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
 const GEAR_NAMES = {
@@ -167,6 +167,12 @@ function sanitizeRpg(value = {}) {
       const starter = !Array.isArray(value.items) ? DEFAULT_RPG.equipment[slot] : equipped;
       return [slot, starter];
     })),
+    autoSettings: {
+      range: ['close', 'balanced', 'safe'].includes(value.autoSettings?.range) ? value.autoSettings.range : DEFAULT_RPG.autoSettings.range,
+      target: ['nearest', 'weakest'].includes(value.autoSettings?.target) ? value.autoSettings.target : DEFAULT_RPG.autoSettings.target,
+      potionAt: [30, 45, 60].includes(Number(value.autoSettings?.potionAt)) ? Number(value.autoSettings.potionAt) : DEFAULT_RPG.autoSettings.potionAt,
+      autoQuest: value.autoSettings?.autoQuest !== false
+    },
     classId: CLASSES.includes(value.classId) ? value.classId : 'warrior'
   };
 }
