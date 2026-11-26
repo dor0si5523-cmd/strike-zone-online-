@@ -23,6 +23,8 @@ const STARTER_ITEMS = [
 ];
 const DEFAULT_RPG = Object.freeze({ xp: 0, gold: 40, cash: 300, kills: 0, questStage: 0, questKills: 0, potions: 3, x: 1300, y: 1070, hp: 100, items: STARTER_ITEMS, equipment: { weapon: 'starter_blade', armor: 'starter_coat', boots: 'starter_boots', ring: 'starter_ring' }, autoSettings: { range: 'balanced', target: 'nearest', potionAt: 45, autoQuest: true }, classId: 'warrior' });
 const GACHA_PRICES = { gold: { 1: 500, 10: 4500 }, cash: { 1: 100, 10: 900 } };
+const GACHA_PITY = { epic: 30, legendary: 100 };
+const DUPLICATE_GOLD = { common: 80, uncommon: 150, rare: 350, epic: 1200, legendary: 4000 };
 const GEAR_RARITY = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
 const GEAR_NAMES = {
   weapon: ['숲길잡이 단검', '달빛 강철검', '고블린 파쇄자'],
@@ -173,6 +175,25 @@ function sanitizeRpg(value = {}) {
       potionAt: [30, 45, 60].includes(Number(value.autoSettings?.potionAt)) ? Number(value.autoSettings.potionAt) : DEFAULT_RPG.autoSettings.potionAt,
       autoQuest: value.autoSettings?.autoQuest !== false
     },
+    summonPity: {
+      epic: Math.floor(numberFrom(value.summonPity?.epic, 0, GACHA_PITY.epic - 1, 0)),
+      legendary: Math.floor(numberFrom(value.summonPity?.legendary, 0, GACHA_PITY.legendary - 1, 0))
+    },
+    summonHistory: Array.isArray(value.summonHistory) ? value.summonHistory.slice(0, 10).map(entry => ({
+      at: Math.floor(numberFrom(entry?.at, 0, Number.MAX_SAFE_INTEGER, 0)),
+      currency: ['gold', 'cash'].includes(entry?.currency) ? entry.currency : 'gold',
+      count: [1, 10].includes(Number(entry?.count)) ? Number(entry.count) : 1,
+      cost: Math.floor(numberFrom(entry?.cost, 0, 9999999, 0)),
+      duplicateCount: Math.floor(numberFrom(entry?.duplicateCount, 0, 10, 0)),
+      goldRefund: Math.floor(numberFrom(entry?.goldRefund, 0, 9999999, 0)),
+      items: Array.isArray(entry?.items) ? entry.items.slice(0, 10).map(item => ({
+        name: String(item?.name || '장비').slice(0, 32),
+        slot: ['weapon', 'armor', 'boots', 'ring'].includes(item?.slot) ? item.slot : 'weapon',
+        rarity: GEAR_RARITY.includes(item?.rarity) ? item.rarity : 'common',
+        duplicate: item?.duplicate === true,
+        goldRefund: Math.floor(numberFrom(item?.goldRefund, 0, 9999999, 0))
+      })) : []
+    })) : [],
     classId: CLASSES.includes(value.classId) ? value.classId : 'warrior'
   };
 }
@@ -371,21 +392,45 @@ app.post('/api/rpg/gacha', async (req, res) => {
       const character = serverCharacters(record, session.serverId).find(item => item.id === session.characterId);
       if (!character) throw new Error('CHARACTER_NOT_FOUND');
       const state = sanitizeRpg(character.state || DEFAULT_RPG);
-      if (state.items.length + count > 60) throw new Error('INVENTORY_FULL');
       if (state[currency] < price) throw new Error('INSUFFICIENT_CURRENCY');
       state[currency] -= price;
       const level = characterLevel(state.xp);
-      const results = Array.from({ length: count }, () => generateGachaGear(level));
-      if (count === 10 && !results.some(item => GEAR_RARITY.indexOf(item.rarity) >= GEAR_RARITY.indexOf('rare'))) results[9] = generateGachaGear(level, 'rare');
-      state.items.push(...results);
+      const results = [], newItems = [];
+      let rarePlus = false, duplicateCount = 0, goldRefund = 0;
+      for (let index = 0; index < count; index++) {
+        let forcedRarity = null;
+        if (state.summonPity.legendary >= GACHA_PITY.legendary - 1) forcedRarity = 'legendary';
+        else if (state.summonPity.epic >= GACHA_PITY.epic - 1) forcedRarity = 'epic';
+        else if (count === 10 && index === count - 1 && !rarePlus) forcedRarity = 'rare';
+        const gear = generateGachaGear(level, forcedRarity);
+        const isEpicPlus = ['epic', 'legendary'].includes(gear.rarity);
+        if (gear.rarity === 'legendary') state.summonPity.legendary = 0;
+        else state.summonPity.legendary = Math.min(GACHA_PITY.legendary - 1, state.summonPity.legendary + 1);
+        if (isEpicPlus) state.summonPity.epic = 0;
+        else state.summonPity.epic = Math.min(GACHA_PITY.epic - 1, state.summonPity.epic + 1);
+        rarePlus ||= GEAR_RARITY.indexOf(gear.rarity) >= GEAR_RARITY.indexOf('rare');
+        const duplicate = state.items.some(item => item.slot === gear.slot && item.name === gear.name) || newItems.some(item => item.slot === gear.slot && item.name === gear.name);
+        if (duplicate) {
+          gear.duplicate = true;
+          gear.goldRefund = DUPLICATE_GOLD[gear.rarity];
+          duplicateCount++;
+          goldRefund += gear.goldRefund;
+        } else newItems.push(gear);
+        results.push(gear);
+      }
+      if (state.items.length + newItems.length > 60) throw new Error('INVENTORY_FULL');
+      state.items.push(...newItems);
+      state.gold = Math.min(9999999, state.gold + goldRefund);
+      const history = { at: Date.now(), currency, count, cost: price, duplicateCount, goldRefund, items: results.map(item => ({ name: item.name, slot: item.slot, rarity: item.rarity, duplicate: item.duplicate === true, goldRefund: item.goldRefund || 0 })) };
+      state.summonHistory = [history, ...state.summonHistory].slice(0, 10);
       character.state = { ...state, classId: character.classId };
-      outcome = { ok: true, currency, cost: price, count, items: results, state: sanitizeRpg(character.state) };
+      outcome = { ok: true, currency, cost: price, count, items: results, duplicateCount, goldRefund, pity: state.summonPity, state: sanitizeRpg(character.state) };
     });
     if (!account || !outcome) return res.status(503).json({ error: '뽑기 결과를 저장하지 못했습니다.' });
     res.json(outcome);
   } catch (error) {
     if (error.message === 'INSUFFICIENT_CURRENCY') return res.status(409).json({ error: currency === 'gold' ? '골드가 부족합니다.' : '캐시가 부족합니다.' });
-    if (error.message === 'INVENTORY_FULL') return res.status(409).json({ error: '장비 가방이 가득 찼습니다. 먼저 장비를 정리해 주세요.' });
+    if (error.message === 'INVENTORY_FULL') return res.status(409).json({ error: '장비 가방 공간이 부족합니다. 중복 장비는 골드로 보상됩니다.' });
     if (error.message === 'CHARACTER_NOT_FOUND') return res.status(404).json({ error: '캐릭터를 찾을 수 없습니다.' });
     res.status(503).json({ error: '뽑기 결과를 저장하지 못했습니다.' });
   }
