@@ -21,7 +21,15 @@ const STARTER_ITEMS = [
   { id: 'starter_boots', name: '길잡이 장화', slot: 'boots', rarity: 'common', atk: 0, def: 1, enhance: 0 },
   { id: 'starter_ring', name: '낡은 호박 반지', slot: 'ring', rarity: 'common', atk: 1, def: 0, enhance: 0 }
 ];
-const DEFAULT_RPG = Object.freeze({ xp: 0, gold: 40, kills: 0, questStage: 0, questKills: 0, potions: 3, x: 1300, y: 1070, hp: 100, items: STARTER_ITEMS, equipment: { weapon: 'starter_blade', armor: 'starter_coat', boots: 'starter_boots', ring: 'starter_ring' }, classId: 'warrior' });
+const DEFAULT_RPG = Object.freeze({ xp: 0, gold: 40, cash: 300, kills: 0, questStage: 0, questKills: 0, potions: 3, x: 1300, y: 1070, hp: 100, items: STARTER_ITEMS, equipment: { weapon: 'starter_blade', armor: 'starter_coat', boots: 'starter_boots', ring: 'starter_ring' }, classId: 'warrior' });
+const GACHA_PRICES = { gold: { 1: 500, 10: 4500 }, cash: { 1: 100, 10: 900 } };
+const GEAR_RARITY = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+const GEAR_NAMES = {
+  weapon: ['숲길잡이 단검', '달빛 강철검', '고블린 파쇄자'],
+  armor: ['수호자의 가죽 갑옷', '잿빛 망토', '숲의 비늘 갑옷'],
+  boots: ['바람걸음 장화', '개척자의 발걸음', '그늘 추적자'],
+  ring: ['호박빛 반지', '숲의 룬 반지', '변경 수호 반지']
+};
 const testMembers = process.env.NODE_ENV === 'test' && process.env.SZ_TEST_LOCAL === '1' && !process.env.RENDER ? new Map() : null;
 
 app.disable('x-powered-by');
@@ -136,6 +144,7 @@ function sanitizeRpg(value = {}) {
   return {
     xp: Math.floor(number('xp', 0, 999999, DEFAULT_RPG.xp)),
     gold: Math.floor(number('gold', 0, 9999999, DEFAULT_RPG.gold)),
+    cash: Math.floor(number('cash', 0, 99999999, DEFAULT_RPG.cash)),
     kills: Math.floor(number('kills', 0, 999999, DEFAULT_RPG.kills)),
     questStage: Math.floor(number('questStage', 0, 2, DEFAULT_RPG.questStage)),
     questKills: Math.floor(number('questKills', 0, 999, DEFAULT_RPG.questKills)),
@@ -176,6 +185,27 @@ function newCharacterState(classId) {
   const state = sanitizeRpg({ ...DEFAULT_RPG, classId });
   state.items[0].name = { warrior: '초보자의 철검', archer: '수습 사냥꾼의 단궁', mage: '견습 마도 지팡이', gunner: '해적의 플린트락' }[classId];
   return state;
+}
+function characterLevel(xp) {
+  let level = 1, remaining = xp, needed = 120;
+  while (remaining >= needed && level < 60) { remaining -= needed; level++; needed = 120 + (level - 1) * 45; }
+  return level;
+}
+function generateGachaGear(level, forcedRarity = null) {
+  const roll = crypto.randomInt(10000);
+  const rarity = forcedRarity || (roll < 6000 ? 'common' : roll < 8500 ? 'uncommon' : roll < 9600 ? 'rare' : roll < 9950 ? 'epic' : 'legendary');
+  const multiplier = { common: 1, uncommon: 1.35, rare: 1.8, epic: 2.5, legendary: 3.5 }[rarity];
+  const slot = ['weapon', 'armor', 'boots', 'ring'][crypto.randomInt(4)];
+  const prefix = { common: '낡은', uncommon: '정교한', rare: '빛나는', epic: '영웅의', legendary: '전설의' }[rarity];
+  const base = Math.max(1, Math.round(level * multiplier * (slot === 'weapon' ? 2.5 : 1)));
+  return {
+    id: 'gacha_' + crypto.randomUUID(),
+    name: `${prefix} ${GEAR_NAMES[slot][crypto.randomInt(GEAR_NAMES[slot].length)]}`,
+    slot, rarity,
+    atk: slot === 'weapon' ? base : Math.floor(base * .28),
+    def: slot === 'weapon' ? Math.floor(base * .22) : base,
+    enhance: 0
+  };
 }
 
 app.get('/api/rpg/servers', async (req, res) => {
@@ -319,6 +349,39 @@ app.post('/api/rpg/save', async (req, res) => {
     res.json({ ok: true, rpg: sanitizeRpg(character.state) });
   } catch {
     res.status(503).json({ error: '캐릭터 저장 실패 · 잠시 후 다시 시도하세요' });
+  }
+});
+app.post('/api/rpg/gacha', async (req, res) => {
+  const session = requestSession(req);
+  if (!session) return res.sendStatus(401);
+  if (!session.serverId || !session.characterId) return res.status(409).json({ error: '서버와 캐릭터를 선택해 주세요.' });
+  const currency = req.body?.currency;
+  const count = Number(req.body?.count);
+  const price = GACHA_PRICES[currency]?.[count];
+  if (!price) return res.status(400).json({ error: '뽑기 횟수와 재화를 확인해 주세요.' });
+  try {
+    let outcome;
+    const account = await editMember(session.user, record => {
+      const character = serverCharacters(record, session.serverId).find(item => item.id === session.characterId);
+      if (!character) throw new Error('CHARACTER_NOT_FOUND');
+      const state = sanitizeRpg(character.state || DEFAULT_RPG);
+      if (state.items.length + count > 60) throw new Error('INVENTORY_FULL');
+      if (state[currency] < price) throw new Error('INSUFFICIENT_CURRENCY');
+      state[currency] -= price;
+      const level = characterLevel(state.xp);
+      const results = Array.from({ length: count }, () => generateGachaGear(level));
+      if (count === 10 && !results.some(item => GEAR_RARITY.indexOf(item.rarity) >= GEAR_RARITY.indexOf('rare'))) results[9] = generateGachaGear(level, 'rare');
+      state.items.push(...results);
+      character.state = { ...state, classId: character.classId };
+      outcome = { ok: true, currency, cost: price, count, items: results, state: sanitizeRpg(character.state) };
+    });
+    if (!account || !outcome) return res.status(503).json({ error: '뽑기 결과를 저장하지 못했습니다.' });
+    res.json(outcome);
+  } catch (error) {
+    if (error.message === 'INSUFFICIENT_CURRENCY') return res.status(409).json({ error: currency === 'gold' ? '골드가 부족합니다.' : '캐시가 부족합니다.' });
+    if (error.message === 'INVENTORY_FULL') return res.status(409).json({ error: '장비 가방이 가득 찼습니다. 먼저 장비를 정리해 주세요.' });
+    if (error.message === 'CHARACTER_NOT_FOUND') return res.status(404).json({ error: '캐릭터를 찾을 수 없습니다.' });
+    res.status(503).json({ error: '뽑기 결과를 저장하지 못했습니다.' });
   }
 });
 

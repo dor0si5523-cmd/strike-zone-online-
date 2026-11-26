@@ -1,6 +1,6 @@
 # Ashen Vale — Browser RPG
 
-A top-down action RPG that runs in modern desktop and mobile browsers. After login, choose a realm and one of three character slots. Create a warrior, archer, mage, or pirate gunner; each class has a distinct attack style. Explore the Greenwood frontier, fight slimes and goblins, complete quests, and earn experience and gold. Defeated monsters can drop equipment across five rarities. Equip four gear slots, enhance worn items with gold, or salvage extras. Optional auto hunt follows nearby monsters, attacks them, explores when none are nearby, and uses a potion at low health while the game is open.
+A top-down action RPG that runs in modern desktop and mobile browsers. After login, choose a realm and one of three character slots. Create a warrior, archer, mage, or pirate gunner; each class has a distinct attack style. Explore the Greenwood frontier, fight slimes and goblins, complete quests, and earn experience, gold, and free cash. Defeated monsters can drop equipment across five rarities; the gear summon uses published rates and guarantees rare-or-better gear on ten pulls. Equip four gear slots, enhance worn items with gold, or salvage extras. Optional auto hunt follows nearby monsters, attacks them, explores when none are nearby, and uses a potion at low health while the game is open. Cash is an in-game reward currency; there is no payment integration.
 
 ## Run locally
 

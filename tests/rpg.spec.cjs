@@ -108,3 +108,33 @@ test('server roster has three character slots with class choice and deletion',as
   await expect(page.locator('.character-slot .class-label')).toHaveText(['궁수','마법사','해적 (거너)']);
   await expect(page.locator('[data-create]')).toHaveCount(0);
 });
+
+test('gold and free cash gacha save gear and guarantee rare gear on ten pulls',async({page})=>{
+  const user=await createAccount(page);
+  const seeded=await page.evaluate(async()=>{
+    const token=sessionStorage.getItem('ashenValeToken'),state=window.__rpgInspect();
+    const response=await fetch('/api/rpg/save',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({...state,gold:10000,cash:1000})});
+    return response.status;
+  });
+  expect(seeded).toBe(200);
+  await page.locator('#logout').click();
+  await page.locator('#uid').fill(user);await page.locator('#pw').fill('test-only-pass-123');
+  await page.locator('#auth-form button[type=submit]').click();
+  await expect(page.locator('#realm-select')).toBeVisible({timeout:45000});
+  await page.locator('[data-server="dawn"]').click();
+  await page.locator('[data-enter]').click();
+  await expect(page.locator('#game')).toBeVisible({timeout:20000});
+  await page.locator('#bag-open').click();
+  await page.locator('.gacha-card summary').click();
+  await page.locator('[data-gacha="cash:10"]').click();
+  await expect(page.locator('.gacha-result')).toHaveCount(10);
+  let state=await page.evaluate(()=>window.__rpgInspect());
+  expect(state.cash).toBe(100);
+  expect(state.items).toHaveLength(14);
+  expect(state.items.slice(-10).some(item=>['rare','epic','legendary'].includes(item.rarity))).toBeTruthy();
+  await page.locator('[data-gacha="gold:1"]').click();
+  state=await page.evaluate(()=>window.__rpgInspect());
+  expect(state.gold).toBe(9500);
+  expect(state.cash).toBe(100);
+  expect(state.items).toHaveLength(15);
+});
