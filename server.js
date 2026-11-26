@@ -9,13 +9,19 @@ const sessions = new Map();
 const attempts = new Map();
 const memberBase = 'https://api.github.com/repos/dor0si5523-cmd/strike-zone-members/contents/';
 const WORLD = { width: 2600, height: 1900 };
+const GAME_SERVERS = [
+  { id: 'dawn', name: '새벽숲', region: '아시아 · 1서버', status: '원활' },
+  { id: 'moon', name: '달빛 항구', region: '아시아 · 2서버', status: '원활' },
+  { id: 'ember', name: '잿빛 변경', region: '아시아 · 3서버', status: '원활' }
+];
+const CLASSES = ['warrior', 'archer', 'mage', 'gunner'];
 const STARTER_ITEMS = [
   { id: 'starter_blade', name: '여행자의 철검', slot: 'weapon', rarity: 'common', atk: 4, def: 0, enhance: 0 },
   { id: 'starter_coat', name: '숲지기 가죽옷', slot: 'armor', rarity: 'common', atk: 0, def: 3, enhance: 0 },
   { id: 'starter_boots', name: '길잡이 장화', slot: 'boots', rarity: 'common', atk: 0, def: 1, enhance: 0 },
   { id: 'starter_ring', name: '낡은 호박 반지', slot: 'ring', rarity: 'common', atk: 1, def: 0, enhance: 0 }
 ];
-const DEFAULT_RPG = Object.freeze({ xp: 0, gold: 40, kills: 0, questStage: 0, questKills: 0, potions: 3, x: 1300, y: 1070, hp: 100, items: STARTER_ITEMS, equipment: { weapon: 'starter_blade', armor: 'starter_coat', boots: 'starter_boots', ring: 'starter_ring' } });
+const DEFAULT_RPG = Object.freeze({ xp: 0, gold: 40, kills: 0, questStage: 0, questKills: 0, potions: 3, x: 1300, y: 1070, hp: 100, items: STARTER_ITEMS, equipment: { weapon: 'starter_blade', armor: 'starter_coat', boots: 'starter_boots', ring: 'starter_ring' }, classId: 'warrior' });
 const testMembers = process.env.NODE_ENV === 'test' && process.env.SZ_TEST_LOCAL === '1' && !process.env.RENDER ? new Map() : null;
 
 app.disable('x-powered-by');
@@ -41,9 +47,10 @@ function issueSession(res, user) {
 function identity(token) {
   const session = sessions.get(token);
   if (!session || session.expiresAt <= Date.now()) return null;
-  return session.user;
+  return session;
 }
-function requestUser(req) { return identity(req.headers.authorization?.replace(/^Bearer /, '')); }
+function requestUser(req) { return identity(req.headers.authorization?.replace(/^Bearer /, ''))?.user || null; }
+function requestSession(req) { return identity(req.headers.authorization?.replace(/^Bearer /, '')); }
 function rateLimit(req, res, next) {
   const now = Date.now();
   const key = req.ip;
@@ -150,9 +157,109 @@ function sanitizeRpg(value = {}) {
       const equipped = requested && Array.isArray(value.items) && value.items.some(item => item?.id === requested && item?.slot === slot) ? requested : '';
       const starter = !Array.isArray(value.items) ? DEFAULT_RPG.equipment[slot] : equipped;
       return [slot, starter];
-    }))
+    })),
+    classId: CLASSES.includes(value.classId) ? value.classId : 'warrior'
   };
 }
+function serverCharacters(record, serverId) {
+  if (!record.rpgServers || typeof record.rpgServers !== 'object' || Array.isArray(record.rpgServers)) record.rpgServers = {};
+  if (!Array.isArray(record.rpgServers[serverId])) record.rpgServers[serverId] = [];
+  return record.rpgServers[serverId];
+}
+function publicCharacter(character) {
+  const state = sanitizeRpg(character.state || {});
+  let level = 1, xp = state.xp, need = 120;
+  while (xp >= need && level < 60) { xp -= need; level++; need = 120 + (level - 1) * 45; }
+  return { id: character.id, name: character.name, classId: character.classId, level, xp: state.xp, kills: state.kills };
+}
+function newCharacterState(classId) {
+  const state = sanitizeRpg({ ...DEFAULT_RPG, classId });
+  state.items[0].name = { warrior: '초보자의 철검', archer: '수습 사냥꾼의 단궁', mage: '견습 마도 지팡이', gunner: '해적의 플린트락' }[classId];
+  return state;
+}
+
+app.get('/api/rpg/servers', async (req, res) => {
+  const session = requestSession(req);
+  if (!session) return res.sendStatus(401);
+  try {
+    const record = await readMember(session.user);
+    if (!record) return res.sendStatus(404);
+    const rosters = record.rpgServers && typeof record.rpgServers === 'object' ? record.rpgServers : {};
+    res.json({ servers: GAME_SERVERS.map(server => ({ ...server, characterCount: Array.isArray(rosters[server.id]) ? Math.min(3, rosters[server.id].length) : 0 })), hasLegacySave: Boolean(record.rpg && !record.rpgMigrationComplete) });
+  } catch {
+    res.status(503).json({ error: '서버 목록을 불러오지 못했습니다.' });
+  }
+});
+app.post('/api/rpg/server/select', async (req, res) => {
+  const session = requestSession(req);
+  if (!session) return res.sendStatus(401);
+  const server = GAME_SERVERS.find(item => item.id === req.body?.serverId);
+  if (!server) return res.status(400).json({ error: '서버를 선택해 주세요.' });
+  try {
+    const record = await editMember(session.user, member => {
+      const characters = serverCharacters(member, server.id);
+      if (!member.rpgMigrationComplete && member.rpg && characters.length === 0) {
+        const state = sanitizeRpg(member.rpg);
+        characters.push({ id: 'legacy_' + server.id, name: '기존 모험가', classId: state.classId, state });
+        member.rpgMigrationComplete = true;
+      }
+    });
+    session.serverId = server.id;
+    session.characterId = null;
+    res.json({ server, characters: serverCharacters(record, server.id).map(publicCharacter) });
+  } catch {
+    res.status(503).json({ error: '캐릭터 목록을 불러오지 못했습니다.' });
+  }
+});
+app.post('/api/rpg/characters', async (req, res) => {
+  const session = requestSession(req);
+  if (!session) return res.sendStatus(401);
+  if (!GAME_SERVERS.some(server => server.id === session.serverId)) return res.status(409).json({ error: '먼저 서버를 선택해 주세요.' });
+  const name = String(req.body?.name || '').trim();
+  const classId = String(req.body?.classId || '');
+  if (!/^[\p{L}\p{N}_ ]{2,12}$/u.test(name) || !CLASSES.includes(classId)) return res.status(400).json({ error: '캐릭터 이름은 2~12자, 직업을 선택해 주세요.' });
+  try {
+    const record = await editMember(session.user, member => {
+      const characters = serverCharacters(member, session.serverId);
+      if (characters.length >= 3) throw new Error('슬롯이 가득 찼습니다.');
+      if (characters.some(character => character.name.toLowerCase() === name.toLowerCase())) throw new Error('같은 이름의 캐릭터가 있습니다.');
+      const state = newCharacterState(classId);
+      characters.push({ id: crypto.randomUUID(), name, classId, state });
+    });
+    res.json({ characters: serverCharacters(record, session.serverId).map(publicCharacter) });
+  } catch (error) {
+    res.status(error.message === '슬롯이 가득 찼습니다.' ? 409 : error.message === '같은 이름의 캐릭터가 있습니다.' ? 409 : 503).json({ error: error.message || '캐릭터를 생성하지 못했습니다.' });
+  }
+});
+app.post('/api/rpg/characters/select', async (req, res) => {
+  const session = requestSession(req);
+  if (!session) return res.sendStatus(401);
+  if (!GAME_SERVERS.some(server => server.id === session.serverId)) return res.status(409).json({ error: '먼저 서버를 선택해 주세요.' });
+  try {
+    const record = await readMember(session.user);
+    const character = serverCharacters(record, session.serverId).find(item => item.id === req.body?.characterId);
+    if (!character) return res.status(404).json({ error: '캐릭터를 찾을 수 없습니다.' });
+    session.characterId = character.id;
+    res.json({ character: publicCharacter(character) });
+  } catch {
+    res.status(503).json({ error: '캐릭터를 선택하지 못했습니다.' });
+  }
+});
+app.post('/api/rpg/characters/delete', async (req, res) => {
+  const session = requestSession(req);
+  if (!session) return res.sendStatus(401);
+  if (!GAME_SERVERS.some(server => server.id === session.serverId)) return res.status(409).json({ error: '먼저 서버를 선택해 주세요.' });
+  try {
+    const record = await editMember(session.user, member => {
+      const characters = serverCharacters(member, session.serverId);
+      member.rpgServers[session.serverId] = characters.filter(item => item.id !== req.body?.characterId);
+    });
+    if (session.characterId === req.body?.characterId) session.characterId = null;
+    res.json({ characters: serverCharacters(record, session.serverId).map(publicCharacter) });
+  } catch {
+    res.status(503).json({ error: '캐릭터를 삭제하지 못했습니다.' });
+  }
+});
 
 app.post('/api/signup', rateLimit, async (req, res) => {
   try {
@@ -184,23 +291,32 @@ app.post('/api/login', rateLimit, async (req, res) => {
   }
 });
 app.get('/api/rpg', async (req, res) => {
-  const user = requestUser(req);
-  if (!user) return res.sendStatus(401);
+  const session = requestSession(req);
+  if (!session) return res.sendStatus(401);
+  if (!session.serverId || !session.characterId) return res.status(409).json({ error: '서버와 캐릭터를 선택해 주세요.' });
   try {
-    const account = await readMember(user);
+    const account = await readMember(session.user);
     if (!account) return res.sendStatus(404);
-    res.json(sanitizeRpg(account.rpg || DEFAULT_RPG));
+    const character = serverCharacters(account, session.serverId).find(item => item.id === session.characterId);
+    if (!character) return res.status(404).json({ error: '선택한 캐릭터를 찾을 수 없습니다.' });
+    res.json(sanitizeRpg(character.state || DEFAULT_RPG));
   } catch {
     res.status(503).json({ error: '캐릭터 저장소를 불러오지 못했습니다' });
   }
 });
 app.post('/api/rpg/save', async (req, res) => {
-  const user = requestUser(req);
-  if (!user) return res.sendStatus(401);
+  const session = requestSession(req);
+  if (!session) return res.sendStatus(401);
+  if (!session.serverId || !session.characterId) return res.status(409).json({ error: '서버와 캐릭터를 선택해 주세요.' });
   try {
     const rpg = sanitizeRpg(req.body || {});
-    const account = await editMember(user, record => { record.rpg = rpg; });
-    res.json({ ok: true, rpg: sanitizeRpg(account.rpg) });
+    const account = await editMember(session.user, record => {
+      const character = serverCharacters(record, session.serverId).find(item => item.id === session.characterId);
+      if (!character) throw new Error('선택한 캐릭터를 찾을 수 없습니다.');
+      character.state = { ...rpg, classId: character.classId };
+    });
+    const character = serverCharacters(account, session.serverId).find(item => item.id === session.characterId);
+    res.json({ ok: true, rpg: sanitizeRpg(character.state) });
   } catch {
     res.status(503).json({ error: '캐릭터 저장 실패 · 잠시 후 다시 시도하세요' });
   }

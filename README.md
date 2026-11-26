@@ -1,6 +1,6 @@
 # Ashen Vale — Browser RPG
 
-A top-down action RPG that runs in modern desktop and mobile browsers. Explore the Greenwood frontier, fight slimes and goblins, complete quests, earn experience and gold, and continue your character from the same account on another device. Defeated monsters can drop equipment across five rarities. Equip four gear slots, enhance worn items with gold, or salvage extras. Optional auto hunt follows nearby monsters, attacks them, explores when none are nearby, and uses a potion at low health while the game is open.
+A top-down action RPG that runs in modern desktop and mobile browsers. After login, choose a realm and one of three character slots. Create a warrior, archer, mage, or pirate gunner; each class has a distinct attack style. Explore the Greenwood frontier, fight slimes and goblins, complete quests, and earn experience and gold. Defeated monsters can drop equipment across five rarities. Equip four gear slots, enhance worn items with gold, or salvage extras. Optional auto hunt follows nearby monsters, attacks them, explores when none are nearby, and uses a potion at low health while the game is open.
 
 ## Run locally
 
@@ -19,7 +19,7 @@ npm test
 
 ## Accounts and saves
 
-Signup and login continue to use the existing GitHub-backed member store configured with `GITHUB_MEMBERS_TOKEN`. The RPG app only adds an `rpg` field to the signed-in member record. It leaves account credentials and every existing member field intact. Local automated tests use an in-memory store.
+Signup and login continue to use the existing GitHub-backed member store configured with `GITHUB_MEMBERS_TOKEN`. Realm rosters and character states are added alongside existing member fields; account credentials and legacy RPG records are retained. A legacy RPG save is copied into the first realm selected. Local automated tests use an in-memory store.
 
 ## Controls
 
