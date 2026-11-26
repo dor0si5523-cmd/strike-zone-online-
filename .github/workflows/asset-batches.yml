@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - '.github/workflows/asset-batches.yml'
+      - 'scripts/import-batch.cjs'
 permissions:
   contents: write
 concurrency: game-art-import
@@ -20,7 +21,7 @@ jobs:
           git config user.name 'strike-zone-assets'
           git config user.email 'actions@users.noreply.github.com'
           for batch in 1 2 3 4; do
-            node scripts/import-batch.cjs
+            REQUIRE_ASSETS=$([ "$batch" = 1 ] && echo 1 || echo 0) node scripts/import-batch.cjs
             git add public/assets
             if git diff --cached --quiet; then break; fi
             git commit -m "Import verified CC0 art batch $batch"
