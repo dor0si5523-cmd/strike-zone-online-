@@ -21,7 +21,18 @@ const STARTER_ITEMS = [
   { id: 'starter_boots', name: '길잡이 장화', slot: 'boots', rarity: 'common', atk: 0, def: 1, enhance: 0 },
   { id: 'starter_ring', name: '낡은 호박 반지', slot: 'ring', rarity: 'common', atk: 1, def: 0, enhance: 0 }
 ];
-const DEFAULT_RPG = Object.freeze({ xp: 0, gold: 40, cash: 300, kills: 0, questStage: 0, questKills: 0, potions: 3, x: 1300, y: 1070, hp: 100, items: STARTER_ITEMS, equipment: { weapon: 'starter_blade', armor: 'starter_coat', boots: 'starter_boots', ring: 'starter_ring' }, autoSettings: { range: 'balanced', target: 'nearest', potionAt: 45, autoQuest: true }, classId: 'warrior' });
+function kstDayKey(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
+  const part = type => parts.find(item => item.type === type)?.value || '00';
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+function kstWeekKey(date = new Date()) {
+  const monday = new Date(`${kstDayKey(date)}T00:00:00Z`);
+  monday.setUTCDate(monday.getUTCDate() - (monday.getUTCDay() + 6) % 7);
+  return monday.toISOString().slice(0, 10);
+}
+function previousDayKey(dayKey) { const previous = new Date(`${dayKey}T00:00:00Z`); previous.setUTCDate(previous.getUTCDate() - 1); return previous.toISOString().slice(0, 10); }
+const DEFAULT_RPG = Object.freeze({ xp: 0, gold: 40, cash: 300, kills: 0, questStage: 0, questKills: 0, potions: 3, x: 1300, y: 1070, hp: 100, items: STARTER_ITEMS, equipment: { weapon: 'starter_blade', armor: 'starter_coat', boots: 'starter_boots', ring: 'starter_ring' }, autoSettings: { range: 'balanced', target: 'nearest', potionAt: 45, autoQuest: true }, summonPity: { epic: 0, legendary: 0 }, summonHistory: [], attendance: { lastDay: '', streak: 0 }, daily: { dayKey: kstDayKey(), kills: 0, attendanceClaimed: false, missionClaimed: false }, weekly: { weekKey: kstWeekKey(), kills: 0, missionClaimed: false }, classId: 'warrior' });
 const GACHA_PRICES = { gold: { 1: 500, 10: 4500 }, cash: { 1: 100, 10: 900 } };
 const GACHA_PITY = { epic: 30, legendary: 100 };
 const DUPLICATE_GOLD = { common: 80, uncommon: 150, rare: 350, epic: 1200, legendary: 4000 };
@@ -143,6 +154,8 @@ function sanitizeRpg(value = {}) {
     const n = Number(raw);
     return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
   };
+  const today = kstDayKey(), week = kstWeekKey(), dailySource = value.daily || {}, weeklySource = value.weekly || {}, attendanceSource = value.attendance || {};
+  const dailyIsCurrent = dailySource.dayKey === today, weeklyIsCurrent = weeklySource.weekKey === week;
   return {
     xp: Math.floor(number('xp', 0, 999999, DEFAULT_RPG.xp)),
     gold: Math.floor(number('gold', 0, 9999999, DEFAULT_RPG.gold)),
@@ -194,6 +207,21 @@ function sanitizeRpg(value = {}) {
         goldRefund: Math.floor(numberFrom(item?.goldRefund, 0, 9999999, 0))
       })) : []
     })) : [],
+    attendance: {
+      lastDay: /^\d{4}-\d{2}-\d{2}$/.test(attendanceSource.lastDay || '') ? attendanceSource.lastDay : '',
+      streak: Math.floor(numberFrom(attendanceSource.streak, 0, 7, 0))
+    },
+    daily: {
+      dayKey: today,
+      kills: dailyIsCurrent ? Math.floor(numberFrom(dailySource.kills, 0, 999999, 0)) : 0,
+      attendanceClaimed: dailyIsCurrent && dailySource.attendanceClaimed === true,
+      missionClaimed: dailyIsCurrent && dailySource.missionClaimed === true
+    },
+    weekly: {
+      weekKey: week,
+      kills: weeklyIsCurrent ? Math.floor(numberFrom(weeklySource.kills, 0, 999999, 0)) : 0,
+      missionClaimed: weeklyIsCurrent && weeklySource.missionClaimed === true
+    },
     classId: CLASSES.includes(value.classId) ? value.classId : 'warrior'
   };
 }
@@ -376,6 +404,59 @@ app.post('/api/rpg/save', async (req, res) => {
     res.json({ ok: true, rpg: sanitizeRpg(character.state) });
   } catch {
     res.status(503).json({ error: '캐릭터 저장 실패 · 잠시 후 다시 시도하세요' });
+  }
+});
+app.post('/api/rpg/activity/claim', async (req, res) => {
+  const session = requestSession(req);
+  if (!session) return res.sendStatus(401);
+  if (!session.serverId || !session.characterId) return res.status(409).json({ error: '서버와 캐릭터를 선택해 주세요.' });
+  const type = req.body?.type;
+  if (!['attendance', 'daily', 'weekly'].includes(type)) return res.status(400).json({ error: '보상 종류를 확인해 주세요.' });
+  try {
+    let outcome;
+    const account = await editMember(session.user, record => {
+      const character = serverCharacters(record, session.serverId).find(item => item.id === session.characterId);
+      if (!character) throw new Error('CHARACTER_NOT_FOUND');
+      const state = sanitizeRpg(character.state || DEFAULT_RPG), today = kstDayKey(), week = kstWeekKey();
+      const reward = { gold: 0, cash: 0 }, detail = {};
+      if (type === 'attendance') {
+        if (state.daily.attendanceClaimed) throw new Error('ATTENDANCE_CLAIMED');
+        const streak = state.attendance.lastDay === previousDayKey(today) ? (state.attendance.streak >= 7 ? 1 : state.attendance.streak + 1) : 1;
+        state.attendance = { lastDay: today, streak };
+        state.daily.attendanceClaimed = true;
+        reward.gold = streak === 7 ? 700 : 100;
+        reward.cash = streak === 7 ? 100 : 20;
+        detail.streak = streak;
+      } else if (type === 'daily') {
+        if (state.daily.missionClaimed) throw new Error('DAILY_CLAIMED');
+        if (state.daily.kills < 20) throw new Error('DAILY_NOT_READY');
+        state.daily.missionClaimed = true;
+        reward.gold = 600;
+        reward.cash = 25;
+        detail.kills = state.daily.kills;
+      } else {
+        if (state.weekly.missionClaimed) throw new Error('WEEKLY_CLAIMED');
+        if (state.weekly.kills < 100) throw new Error('WEEKLY_NOT_READY');
+        state.weekly.missionClaimed = true;
+        reward.gold = 2500;
+        reward.cash = 125;
+        detail.kills = state.weekly.kills;
+      }
+      state.gold = Math.min(9999999, state.gold + reward.gold);
+      state.cash = Math.min(99999999, state.cash + reward.cash);
+      character.state = { ...state, classId: character.classId };
+      outcome = { ok: true, type, reward, detail, state: sanitizeRpg(character.state) };
+    });
+    if (!account || !outcome) return res.status(503).json({ error: '보상을 저장하지 못했습니다.' });
+    res.json(outcome);
+  } catch (error) {
+    if (error.message === 'CHARACTER_NOT_FOUND') return res.status(404).json({ error: '선택한 캐릭터를 찾을 수 없습니다.' });
+    if (error.message === 'ATTENDANCE_CLAIMED') return res.status(409).json({ error: '오늘 출석 보상을 이미 받았습니다.' });
+    if (error.message === 'DAILY_CLAIMED') return res.status(409).json({ error: '오늘 사냥 의뢰 보상을 이미 받았습니다.' });
+    if (error.message === 'DAILY_NOT_READY') return res.status(409).json({ error: '오늘 몬스터 20마리를 처치하면 보상을 받을 수 있습니다.' });
+    if (error.message === 'WEEKLY_CLAIMED') return res.status(409).json({ error: '이번 주 사냥 보상을 이미 받았습니다.' });
+    if (error.message === 'WEEKLY_NOT_READY') return res.status(409).json({ error: '이번 주 몬스터 100마리를 처치하면 보상을 받을 수 있습니다.' });
+    res.status(503).json({ error: '보상을 저장하지 못했습니다.' });
   }
 });
 app.post('/api/rpg/gacha', async (req, res) => {
