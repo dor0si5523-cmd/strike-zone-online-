@@ -22,6 +22,22 @@ async function createAccount(page,classId='warrior'){
   return user;
 }
 
+test('development shortcut opens character creation without login or realm selection',async({page})=>{
+  const blocked=[];
+  page.on('request',request=>{if(['/api/login','/api/signup','/api/rpg/servers','/api/rpg/server/select'].some(path=>request.url().endsWith(path)))blocked.push(request.url())});
+  await page.goto('/?dev=1');
+  await expect(page.locator('#character-name')).toBeVisible();
+  await expect(page.locator('#auth-form')).toHaveCount(0);
+  await expect(page.locator('#realm-select')).toHaveCount(0);
+  await page.locator('#character-name').fill('개발궁수');
+  await page.locator('[data-class="archer"]').click();
+  await page.locator('#create-submit').click();
+  await expect(page.locator('#game')).toBeVisible();
+  expect(await page.evaluate(()=>window.__rpgInspect().classId)).toBe('archer');
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('ashenValeDevCharacter')).character.name)).toBe('개발궁수');
+  expect(blocked).toEqual([]);
+});
+
 test('desktop login, RPG movement, attack and persistent character save',async({page})=>{
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
   const user=await createAccount(page);
