@@ -102,6 +102,52 @@ async function memberRequest(user, method = 'GET', body) {
     signal: AbortSignal.timeout(10000)
   });
 }
+const socialFilePath = memberBase + 'members/public-rankings.json';
+function socialRequest(method = 'GET', body) {
+  const token = process.env.GITHUB_MEMBERS_TOKEN;
+  if (!token) throw new Error('storage not configured');
+  return fetch(socialFilePath, { method, headers: { Authorization: 'Bearer ' + token, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(10000) });
+}
+function normalizeSocial(value = {}) {
+  const entries = {};
+  if (value.entries && typeof value.entries === 'object' && !Array.isArray(value.entries)) for (const [id, entry] of Object.entries(value.entries).slice(0, 10000)) {
+    if (!/^[a-f0-9]{64}$/.test(id) || !entry || typeof entry !== 'object') continue;
+    entries[id] = { alias: String(entry.alias || '모험가').slice(0, 16), classId: CLASSES.includes(entry.classId) ? entry.classId : 'warrior', level: Math.floor(Math.max(1, Math.min(60, Number(entry.level) || 1))), score: Math.floor(Math.max(0, Math.min(999999999, Number(entry.score) || 0))), kills: Math.floor(Math.max(0, Math.min(999999, Number(entry.kills) || 0))), rankingOptIn: entry.rankingOptIn === true };
+  }
+  const clans = {};
+  if (value.clans && typeof value.clans === 'object' && !Array.isArray(value.clans)) for (const [id, clan] of Object.entries(value.clans).slice(0, 2000)) {
+    if (!/^[a-f0-9]{16}$/.test(id) || !clan || typeof clan !== 'object') continue;
+    clans[id] = { name: String(clan.name || '모험가 길드').slice(0, 16), code: String(clan.code || '').slice(0, 8).toUpperCase(), memberIds: Array.isArray(clan.memberIds) ? [...new Set(clan.memberIds.filter(key => /^[a-f0-9]{64}$/.test(key)))].slice(0, 30) : [], weekKey: /^\d{4}-\d{2}-\d{2}$/.test(clan.weekKey || '') ? clan.weekKey : kstWeekKey(), weeklyKills: Math.floor(Math.max(0, Math.min(999999, Number(clan.weeklyKills) || 0))) };
+  }
+  return { entries, clans };
+}
+async function readSocial() {
+  const response = await socialRequest();
+  if (response.status === 404) return { board: normalizeSocial(), sha: null };
+  if (!response.ok) throw new Error('social storage read failed');
+  const file = await response.json();
+  return { board: normalizeSocial(JSON.parse(Buffer.from(file.content, 'base64').toString('utf8'))), sha: file.sha };
+}
+async function updateSocial(change) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const { board, sha } = await readSocial();
+    const result = change(board);
+    const body = { message: 'Update Ashen Vale public community data', content: Buffer.from(JSON.stringify(board)).toString('base64') };
+    if (sha) body.sha = sha;
+    const saved = await socialRequest('PUT', body);
+    if (saved.ok) return { board, result };
+    if (saved.status !== 409 && saved.status !== 422) throw new Error('social storage write failed');
+  }
+  throw new Error('social storage conflict');
+}
+function socialMemberId(session) { return crypto.createHash('sha256').update(`${session.user}:${session.serverId}:${session.characterId}`).digest('hex'); }
+function safePublicAlias(value, fallback) { const alias = String(value || fallback || '').trim(); if (!/^[\p{L}\p{N}_ ]{2,16}$/u.test(alias)) throw new Error('별칭은 한글·영문·숫자 2~16자로 입력해 주세요.'); return alias; }
+function locateSocialClan(board, memberId) { return Object.entries(board.clans).find(([, clan]) => clan.memberIds.includes(memberId)) || null; }
+function socialClanView(board, clanId) {
+  const clan = board.clans[clanId]; if (!clan) return null;
+  if (clan.weekKey !== kstWeekKey()) { clan.weekKey = kstWeekKey(); clan.weeklyKills = 0; }
+  return { id: clanId, name: clan.name, inviteCode: clan.code, memberCount: clan.memberIds.length, members: clan.memberIds.map(id => board.entries[id]).filter(Boolean).map(entry => ({ alias: entry.alias, classId: entry.classId, level: entry.level, score: entry.score })), weeklyKills: clan.weeklyKills, weeklyGoal: 100 };
+}
 async function readMember(user) {
   if (testMembers) return testMembers.get(user) || null;
   const response = await memberRequest(user);
@@ -232,6 +278,7 @@ function sanitizeRpg(value = {}) {
     bestiary: Object.fromEntries(['slime', 'forest_wolf', 'ash_goblin', 'ash_wolf', 'raider', 'reef_wraith', 'forest_guardian', 'ash_golem', 'sea_leviathan'].map(id => [id, Math.floor(numberFrom(value.bestiary?.[id], 0, 999999, 0))])),
     records: { bestScore: Math.floor(numberFrom(value.records?.bestScore, 0, 999999999, 0)), bestKills: Math.floor(numberFrom(value.records?.bestKills, 0, 999999, 0)), bestBosses: Math.floor(numberFrom(value.records?.bestBosses, 0, 999999, 0)) },
     partyEnabled: value.partyEnabled !== false,
+    clanWeeklyClaimKey: /^\d{4}-\d{2}-\d{2}$/.test(value.clanWeeklyClaimKey || '') ? value.clanWeeklyClaimKey : '',
     classId: CLASSES.includes(value.classId) ? value.classId : 'warrior'
   };
 }
@@ -442,6 +489,131 @@ app.post('/api/rpg/zone/travel', async (req, res) => {
     if (error.message === 'CHARACTER_NOT_FOUND') return res.status(404).json({ error: '선택한 캐릭터를 찾을 수 없습니다.' });
     if (error.message === 'ZONE_LOCKED') return res.status(409).json({ error: `이 지역은 레벨 ${zone.requiredLevel}부터 입장할 수 있습니다.` });
     res.status(503).json({ error: '지역 이동을 저장하지 못했습니다.' });
+  }
+});
+app.get('/api/rpg/social/rankings', async (req, res) => {
+  try {
+    let { board } = await readSocial();
+    const session = requestSession(req);
+    if (session?.serverId && session?.characterId) {
+      const account = await readMember(session.user), character = serverCharacters(account || {}, session.serverId).find(item => item.id === session.characterId), id = socialMemberId(session), own = board.entries[id];
+      if (character && own?.rankingOptIn) {
+        const state = sanitizeRpg(character.state || DEFAULT_RPG);
+        await updateSocial(current => { const entry = current.entries[id]; if (entry?.rankingOptIn) Object.assign(entry, { classId: character.classId, level: characterLevel(state.xp), score: state.records.bestScore, kills: state.kills }); });
+        ({ board } = await readSocial());
+      }
+    }
+    const rankings = Object.values(board.entries).filter(entry => entry.rankingOptIn).sort((a, b) => b.score - a.score || b.level - a.level || a.alias.localeCompare(b.alias)).slice(0, 50);
+    let mine = { optedIn: false, rank: 0 };
+    if (session?.serverId && session?.characterId) {
+      const id = socialMemberId(session), own = board.entries[id];
+      mine = { optedIn: own?.rankingOptIn === true, rank: own?.rankingOptIn ? rankings.findIndex(entry => entry === own) + 1 : 0 };
+    }
+    res.json({ rankings, mine });
+  } catch { res.status(503).json({ error: '공개 랭킹을 불러오지 못했습니다.' }); }
+});
+app.post('/api/rpg/social/ranking', rateLimit, async (req, res) => {
+  const session = requestSession(req);
+  if (!session) return res.sendStatus(401);
+  if (!session.serverId || !session.characterId) return res.status(409).json({ error: '캐릭터를 선택해 주세요.' });
+  if (typeof req.body?.optIn !== 'boolean') return res.status(400).json({ error: '공개 설정을 확인해 주세요.' });
+  try {
+    const account = await readMember(session.user), character = serverCharacters(account || {}, session.serverId).find(item => item.id === session.characterId);
+    if (!character) return res.status(404).json({ error: '캐릭터를 찾을 수 없습니다.' });
+    const state = sanitizeRpg(character.state || DEFAULT_RPG), id = socialMemberId(session), alias = safePublicAlias(req.body?.alias, character.name);
+    await updateSocial(board => {
+      const existing = board.entries[id] || {};
+      if (req.body.optIn) board.entries[id] = { ...existing, alias, classId: character.classId, level: characterLevel(state.xp), score: state.records.bestScore, kills: state.kills, rankingOptIn: true };
+      else if (locateSocialClan(board, id)) board.entries[id] = { ...existing, alias, rankingOptIn: false };
+      else delete board.entries[id];
+    });
+    res.json({ ok: true, optedIn: req.body.optIn });
+  } catch (error) { res.status(503).json({ error: error.message || '랭킹 설정을 저장하지 못했습니다.' }); }
+});
+app.get('/api/rpg/social/clan', async (req, res) => {
+  const session = requestSession(req);
+  if (!session) return res.sendStatus(401);
+  if (!session.serverId || !session.characterId) return res.status(409).json({ error: '캐릭터를 선택해 주세요.' });
+  try {
+    const { board } = await readSocial(), id = socialMemberId(session), found = locateSocialClan(board, id);
+    const account = await readMember(session.user), character = serverCharacters(account || {}, session.serverId).find(item => item.id === session.characterId);
+    const state = sanitizeRpg(character?.state || DEFAULT_RPG), week = kstWeekKey();
+    res.json({ clan: found ? socialClanView(board, found[0]) : null, weeklyClaimed: state.clanWeeklyClaimKey === week });
+  } catch { res.status(503).json({ error: '클랜 정보를 불러오지 못했습니다.' }); }
+});
+app.post('/api/rpg/social/clan', rateLimit, async (req, res) => {
+  const session = requestSession(req);
+  if (!session) return res.sendStatus(401);
+  if (!session.serverId || !session.characterId) return res.status(409).json({ error: '캐릭터를 선택해 주세요.' });
+  const action = String(req.body?.action || '');
+  if (!['create', 'join', 'leave'].includes(action)) return res.status(400).json({ error: '클랜 작업을 확인해 주세요.' });
+  try {
+    const account = await readMember(session.user), character = serverCharacters(account || {}, session.serverId).find(item => item.id === session.characterId);
+    if (!character) return res.status(404).json({ error: '캐릭터를 찾을 수 없습니다.' });
+    const state = sanitizeRpg(character.state || DEFAULT_RPG), id = socialMemberId(session), alias = safePublicAlias(req.body?.alias, character.name);
+    const clanName = String(req.body?.name || '').trim();
+    if (action === 'create' && !/^[\p{L}\p{N}_ ]{2,16}$/u.test(clanName)) return res.status(400).json({ error: '클랜명은 한글·영문·숫자 2~16자로 입력해 주세요.' });
+    const inviteCode = String(req.body?.code || '').trim().toUpperCase();
+    const { board } = await updateSocial(current => {
+      let existing = current.entries[id] || {};
+      current.entries[id] = { ...existing, alias, classId: character.classId, level: characterLevel(state.xp), score: state.records.bestScore, kills: state.kills, rankingOptIn: existing.rankingOptIn === true };
+      const previous = locateSocialClan(current, id);
+      if (previous) { current.clans[previous[0]].memberIds = current.clans[previous[0]].memberIds.filter(member => member !== id); if (!current.clans[previous[0]].memberIds.length) delete current.clans[previous[0]]; }
+      if (action === 'create') {
+        if (Object.keys(current.clans).length >= 2000) throw new Error('현재 새 클랜을 만들 수 없습니다.');
+        const clanId = crypto.randomBytes(8).toString('hex');
+        let code; do { code = crypto.randomBytes(3).toString('hex').toUpperCase(); } while (Object.values(current.clans).some(clan => clan.code === code));
+        current.clans[clanId] = { name: clanName, code, memberIds: [id], weekKey: kstWeekKey(), weeklyKills: 0 };
+      } else if (action === 'join') {
+        const found = Object.entries(current.clans).find(([, clan]) => clan.code === inviteCode);
+        if (!found) throw new Error('초대 코드를 찾을 수 없습니다.');
+        if (found[1].memberIds.length >= 30) throw new Error('클랜 정원이 가득 찼습니다.');
+        found[1].memberIds.push(id);
+      }
+    });
+    const found = locateSocialClan(board, id);
+    res.json({ ok: true, clan: found ? socialClanView(board, found[0]) : null });
+  } catch (error) { res.status(400).json({ error: error.message || '클랜 정보를 저장하지 못했습니다.' }); }
+});
+app.post('/api/rpg/social/clan/contribute', rateLimit, async (req, res) => {
+  const session = requestSession(req);
+  if (!session) return res.sendStatus(401);
+  if (!session.serverId || !session.characterId) return res.status(409).json({ error: '캐릭터를 선택해 주세요.' });
+  const count = Math.floor(Math.max(0, Math.min(20, Number(req.body?.count) || 0)));
+  if (!count) return res.status(400).json({ error: '기여 처치 수를 확인해 주세요.' });
+  try {
+    let outcome = { hasClan: false, weeklyKills: 0, weeklyGoal: 100 };
+    await updateSocial(board => {
+      const found = locateSocialClan(board, socialMemberId(session)); if (!found) return;
+      const clan = found[1]; if (clan.weekKey !== kstWeekKey()) { clan.weekKey = kstWeekKey(); clan.weeklyKills = 0; }
+      clan.weeklyKills = Math.min(999999, clan.weeklyKills + count);
+      outcome = { hasClan: true, weeklyKills: clan.weeklyKills, weeklyGoal: 100 };
+    });
+    res.json(outcome);
+  } catch { res.status(503).json({ error: '클랜 사냥 기록을 저장하지 못했습니다.' }); }
+});
+app.post('/api/rpg/social/clan/claim', rateLimit, async (req, res) => {
+  const session = requestSession(req);
+  if (!session) return res.sendStatus(401);
+  if (!session.serverId || !session.characterId) return res.status(409).json({ error: '캐릭터를 선택해 주세요.' });
+  try {
+    const { board } = await readSocial(), found = locateSocialClan(board, socialMemberId(session));
+    if (!found) return res.status(409).json({ error: '클랜에 가입해야 보상을 받을 수 있습니다.' });
+    const clan = found[1]; if (clan.weekKey !== kstWeekKey() || clan.weeklyKills < 100) return res.status(409).json({ error: '클랜 주간 처치 목표 100회를 달성해야 합니다.' });
+    let rewardState;
+    await editMember(session.user, record => {
+      const character = serverCharacters(record, session.serverId).find(item => item.id === session.characterId);
+      if (!character) throw new Error('CHARACTER_NOT_FOUND');
+      const state = sanitizeRpg(character.state || DEFAULT_RPG), week = kstWeekKey();
+      if (state.clanWeeklyClaimKey === week) throw new Error('CLAN_REWARD_CLAIMED');
+      state.clanWeeklyClaimKey = week; state.gold = Math.min(9999999, state.gold + 500); state.cash = Math.min(99999999, state.cash + 20);
+      character.state = { ...state, classId: character.classId }; rewardState = sanitizeRpg(character.state);
+    });
+    res.json({ ok: true, reward: { gold: 500, cash: 20 }, state: rewardState });
+  } catch (error) {
+    if (error.message === 'CLAN_REWARD_CLAIMED') return res.status(409).json({ error: '이번 주 클랜 보상은 이미 받았습니다.' });
+    if (error.message === 'CHARACTER_NOT_FOUND') return res.status(404).json({ error: '캐릭터를 찾을 수 없습니다.' });
+    res.status(503).json({ error: '클랜 보상을 지급하지 못했습니다.' });
   }
 });
 app.post('/api/rpg/activity/claim', async (req, res) => {
