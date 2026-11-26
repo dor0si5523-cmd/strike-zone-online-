@@ -77,6 +77,7 @@ function identity(token) {
 }
 function requestUser(req) { return identity(req.headers.authorization?.replace(/^Bearer /, ''))?.user || null; }
 function requestSession(req) { return identity(req.headers.authorization?.replace(/^Bearer /, '')); }
+function isRpgAdmin(session) { const allowed = String(process.env.RPG_ADMIN_USERS || '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean); return Boolean(session?.user && allowed.includes(session.user.toLowerCase())); }
 function rateLimit(req, res, next) {
   const now = Date.now();
   const key = req.ip;
@@ -119,7 +120,10 @@ function normalizeSocial(value = {}) {
     if (!/^[a-f0-9]{16}$/.test(id) || !clan || typeof clan !== 'object') continue;
     clans[id] = { name: String(clan.name || '모험가 길드').slice(0, 16), code: String(clan.code || '').slice(0, 8).toUpperCase(), memberIds: Array.isArray(clan.memberIds) ? [...new Set(clan.memberIds.filter(key => /^[a-f0-9]{64}$/.test(key)))].slice(0, 30) : [], weekKey: /^\d{4}-\d{2}-\d{2}$/.test(clan.weekKey || '') ? clan.weekKey : kstWeekKey(), weeklyKills: Math.floor(Math.max(0, Math.min(999999, Number(clan.weeklyKills) || 0))) };
   }
-  return { entries, clans };
+  const noticeSource = value.announcement && typeof value.announcement === 'object' ? value.announcement : null;
+  const announcement = noticeSource && typeof noticeSource.title === 'string' && typeof noticeSource.body === 'string' ? { title: noticeSource.title.slice(0, 48), body: noticeSource.body.slice(0, 500), updatedAt: Math.floor(Math.max(0, Math.min(Number.MAX_SAFE_INTEGER, Number(noticeSource.updatedAt) || 0))) } : null;
+  const audit = Array.isArray(value.adminAudit) ? value.adminAudit.slice(0, 20).filter(entry => entry && typeof entry.action === 'string').map(entry => ({ action: entry.action.slice(0, 24), at: Math.floor(Math.max(0, Math.min(Number.MAX_SAFE_INTEGER, Number(entry.at) || 0))) })) : [];
+  return { entries, clans, announcement, adminAudit: audit };
 }
 async function readSocial() {
   const response = await socialRequest();
@@ -490,6 +494,36 @@ app.post('/api/rpg/zone/travel', async (req, res) => {
     if (error.message === 'ZONE_LOCKED') return res.status(409).json({ error: `이 지역은 레벨 ${zone.requiredLevel}부터 입장할 수 있습니다.` });
     res.status(503).json({ error: '지역 이동을 저장하지 못했습니다.' });
   }
+});
+app.get('/api/rpg/announcement', async (req, res) => {
+  try { const { board } = await readSocial(); res.json({ announcement: board.announcement, isAdmin: isRpgAdmin(requestSession(req)) }); }
+  catch { res.status(503).json({ error: '운영 공지를 불러오지 못했습니다.' }); }
+});
+app.get('/api/admin/overview', async (req, res) => {
+  const session = requestSession(req); if (!session) return res.sendStatus(401);
+  if (!isRpgAdmin(session)) return res.sendStatus(403);
+  try {
+    const { board } = await readSocial();
+    res.json({ uptimeSeconds: Math.floor(process.uptime()), activeSessions: sessions.size, optedInRanks: Object.values(board.entries).filter(entry => entry.rankingOptIn).length, clans: Object.keys(board.clans).length, updatedAt: Date.now() });
+  } catch { res.status(503).json({ error: '운영 현황을 불러오지 못했습니다.' }); }
+});
+app.post('/api/admin/announcement', rateLimit, async (req, res) => {
+  const session = requestSession(req); if (!session) return res.sendStatus(401);
+  if (!isRpgAdmin(session)) return res.sendStatus(403);
+  const title = String(req.body?.title || '').trim(), body = String(req.body?.body || '').trim();
+  if (title.length < 2 || title.length > 48 || body.length < 2 || body.length > 500) return res.status(400).json({ error: '제목은 2~48자, 내용은 2~500자로 입력해 주세요.' });
+  try {
+    const { board } = await updateSocial(current => { current.announcement = { title, body, updatedAt: Date.now() }; current.adminAudit.unshift({ action: 'announcement_publish', at: Date.now() }); current.adminAudit = current.adminAudit.slice(0, 20); });
+    res.json({ ok: true, announcement: board.announcement });
+  } catch { res.status(503).json({ error: '공지를 저장하지 못했습니다.' }); }
+});
+app.delete('/api/admin/announcement', rateLimit, async (req, res) => {
+  const session = requestSession(req); if (!session) return res.sendStatus(401);
+  if (!isRpgAdmin(session)) return res.sendStatus(403);
+  try {
+    await updateSocial(board => { board.announcement = null; board.adminAudit.unshift({ action: 'announcement_clear', at: Date.now() }); board.adminAudit = board.adminAudit.slice(0, 20); });
+    res.json({ ok: true });
+  } catch { res.status(503).json({ error: '공지를 내리지 못했습니다.' }); }
 });
 app.get('/api/rpg/social/rankings', async (req, res) => {
   try {
