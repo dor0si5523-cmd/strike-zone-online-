@@ -1,6 +1,6 @@
 const express=require('express'),http=require('http'),{Server}=require('socket.io');
 const app=express(),server=http.createServer(app),io=new Server(server,{maxHttpBufferSize:16384});
-app.use(express.static('public'));app.use('/three',express.static('node_modules/three/build'));app.get('/health',(_,r)=>r.json({ok:true}));
+app.use(express.static('public'));app.use('/addons',express.static('node_modules/three/examples/jsm'));app.use('/three',express.static('node_modules/three/build'));app.get('/health',(_,r)=>r.json({ok:true}));
 const rooms=new Map(),walls=[[0,0,4,8],[-9,7,5,3],[9,-7,5,3],[-10,-8,3,5],[10,8,3,5],[0,12,7,2],[0,-12,7,2]];
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),num=v=>Number.isFinite(v)?v:0;
 function blocked(x,z){return Math.abs(x)>19||Math.abs(z)>19||walls.some(([a,b,w,d])=>Math.abs(x-a)<w/2+.35&&Math.abs(z-b)<d/2+.35)}
