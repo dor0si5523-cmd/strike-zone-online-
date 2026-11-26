@@ -14,6 +14,11 @@ const GAME_SERVERS = [
   { id: 'moon', name: '달빛 항구', region: '아시아 · 2서버', status: '원활' },
   { id: 'ember', name: '잿빛 변경', region: '아시아 · 3서버', status: '원활' }
 ];
+const GAME_ZONES = {
+  forest: { name: '초록숲', requiredLevel: 1 },
+  ashlands: { name: '잿빛 고원', requiredLevel: 8 },
+  moonharbor: { name: '달빛 항구', requiredLevel: 18 }
+};
 const CLASSES = ['warrior', 'archer', 'mage', 'gunner'];
 const STARTER_ITEMS = [
   { id: 'starter_blade', name: '여행자의 철검', slot: 'weapon', rarity: 'common', atk: 4, def: 0, enhance: 0 },
@@ -32,7 +37,7 @@ function kstWeekKey(date = new Date()) {
   return monday.toISOString().slice(0, 10);
 }
 function previousDayKey(dayKey) { const previous = new Date(`${dayKey}T00:00:00Z`); previous.setUTCDate(previous.getUTCDate() - 1); return previous.toISOString().slice(0, 10); }
-const DEFAULT_RPG = Object.freeze({ xp: 0, gold: 40, cash: 300, kills: 0, questStage: 0, questKills: 0, potions: 3, x: 1300, y: 1070, hp: 100, items: STARTER_ITEMS, equipment: { weapon: 'starter_blade', armor: 'starter_coat', boots: 'starter_boots', ring: 'starter_ring' }, autoSettings: { range: 'balanced', target: 'nearest', potionAt: 45, autoQuest: true }, summonPity: { epic: 0, legendary: 0 }, summonHistory: [], attendance: { lastDay: '', streak: 0 }, daily: { dayKey: kstDayKey(), kills: 0, attendanceClaimed: false, missionClaimed: false }, weekly: { weekKey: kstWeekKey(), kills: 0, missionClaimed: false }, classId: 'warrior' });
+const DEFAULT_RPG = Object.freeze({ xp: 0, gold: 40, cash: 300, kills: 0, questStage: 0, questKills: 0, potions: 3, x: 1300, y: 1070, hp: 100, items: STARTER_ITEMS, equipment: { weapon: 'starter_blade', armor: 'starter_coat', boots: 'starter_boots', ring: 'starter_ring' }, autoSettings: { range: 'balanced', target: 'nearest', potionAt: 45, autoQuest: true }, summonPity: { epic: 0, legendary: 0 }, summonHistory: [], attendance: { lastDay: '', streak: 0 }, daily: { dayKey: kstDayKey(), kills: 0, attendanceClaimed: false, missionClaimed: false }, weekly: { weekKey: kstWeekKey(), kills: 0, missionClaimed: false }, zoneId: 'forest', classId: 'warrior' });
 const GACHA_PRICES = { gold: { 1: 500, 10: 4500 }, cash: { 1: 100, 10: 900 } };
 const GACHA_PITY = { epic: 30, legendary: 100 };
 const DUPLICATE_GOLD = { common: 80, uncommon: 150, rare: 350, epic: 1200, legendary: 4000 };
@@ -222,6 +227,7 @@ function sanitizeRpg(value = {}) {
       kills: weeklyIsCurrent ? Math.floor(numberFrom(weeklySource.kills, 0, 999999, 0)) : 0,
       missionClaimed: weeklyIsCurrent && weeklySource.missionClaimed === true
     },
+    zoneId: GAME_ZONES[value.zoneId] && characterLevel(Math.floor(number('xp', 0, 999999, DEFAULT_RPG.xp))) >= GAME_ZONES[value.zoneId].requiredLevel ? value.zoneId : 'forest',
     classId: CLASSES.includes(value.classId) ? value.classId : 'warrior'
   };
 }
@@ -404,6 +410,34 @@ app.post('/api/rpg/save', async (req, res) => {
     res.json({ ok: true, rpg: sanitizeRpg(character.state) });
   } catch {
     res.status(503).json({ error: '캐릭터 저장 실패 · 잠시 후 다시 시도하세요' });
+  }
+});
+app.post('/api/rpg/zone/travel', async (req, res) => {
+  const session = requestSession(req);
+  if (!session) return res.sendStatus(401);
+  if (!session.serverId || !session.characterId) return res.status(409).json({ error: '서버와 캐릭터를 선택해 주세요.' });
+  const zoneId = String(req.body?.zoneId || ''), zone = GAME_ZONES[zoneId];
+  if (!zone) return res.status(400).json({ error: '지역 정보를 확인해 주세요.' });
+  try {
+    let outcome;
+    const account = await editMember(session.user, record => {
+      const character = serverCharacters(record, session.serverId).find(item => item.id === session.characterId);
+      if (!character) throw new Error('CHARACTER_NOT_FOUND');
+      const state = sanitizeRpg(character.state || DEFAULT_RPG), level = characterLevel(state.xp);
+      if (level < zone.requiredLevel) throw new Error('ZONE_LOCKED');
+      state.zoneId = zoneId;
+      state.x = 1300;
+      state.y = 1070;
+      state.hp = Math.max(65, state.hp);
+      character.state = { ...state, classId: character.classId };
+      outcome = { zoneId, zone, state: sanitizeRpg(character.state) };
+    });
+    if (!account || !outcome) return res.status(503).json({ error: '지역 이동을 저장하지 못했습니다.' });
+    res.json(outcome);
+  } catch (error) {
+    if (error.message === 'CHARACTER_NOT_FOUND') return res.status(404).json({ error: '선택한 캐릭터를 찾을 수 없습니다.' });
+    if (error.message === 'ZONE_LOCKED') return res.status(409).json({ error: `이 지역은 레벨 ${zone.requiredLevel}부터 입장할 수 있습니다.` });
+    res.status(503).json({ error: '지역 이동을 저장하지 못했습니다.' });
   }
 });
 app.post('/api/rpg/activity/claim', async (req, res) => {
