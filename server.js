@@ -1,47 +1,184 @@
-const express=require('express'),http=require('http'),{Server}=require('socket.io');
-const app=express();app.disable('x-powered-by');app.use((req,res,next)=>{res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','same-origin');res.setHeader('X-Frame-Options','DENY');next()});const server=http.createServer(app),io=new Server(server,{maxHttpBufferSize:16384});
-app.use(express.static('public',{setHeaders(res,path){if(path.endsWith('.js')||path.endsWith('.html'))res.setHeader('Cache-Control','no-cache')}}));app.use('/addons',express.static('node_modules/three/examples/jsm'));app.use('/three',express.static('node_modules/three/build'));app.get('/health',(_,r)=>r.json({ok:true,version:'4.0',uptime:Math.floor(process.uptime())}));
-let soldierBytes=null,soldierPending=null;app.get('/assets/soldier-v2.glb',async(req,res)=>{try{if(!soldierBytes){soldierPending??=(async()=>{for(let url of ['https://threejs.org/examples/models/gltf/Soldier.glb','https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Soldier.glb']){try{let r=await fetch(url,{signal:AbortSignal.timeout(15000)});if(!r.ok)continue;let b=Buffer.from(await r.arrayBuffer());if(b.length>20*1024*1024||b.toString('ascii',0,4)!=='glTF')continue;return b}catch{}}throw Error('soldier unavailable')})();try{soldierBytes=await soldierPending}finally{soldierPending=null}}res.set('Cache-Control','public,max-age=86400').type('model/gltf-binary').send(soldierBytes)}catch{res.sendStatus(503)}});
-const assetIds={concrete:'concrete_wall_008',metal:'rusty_metal_02',wood:'weathered_plank_siding',road:'asphalt_02',brick:'brick_wall_001',sky:'sunset_jhbcentral'};const assetCache=new Map();app.get('/api/art/:kind',async(req,res)=>{let kind=req.params.kind,id=Object.hasOwn(assetIds,kind)?assetIds[kind]:null;if(!id)return res.sendStatus(404);try{let cached=assetCache.get(kind);if(!cached){let response=await fetch('https://api.polyhaven.com/files/'+id,{headers:{'User-Agent':'STRIKE-ZONE-AssetLoader/1.0'},signal:AbortSignal.timeout(12000)});if(!response.ok)throw Error('asset catalog');let data=await response.json();cached={};for(let [key,entry] of Object.entries(data)){let selection=entry['4k']||entry['2k']||entry['1k'];let file=selection?.jpg||selection?.hdr||selection?.gltf;if(file?.url&&file.url.startsWith('https://'))cached[key]=file.url}assetCache.set(kind,cached)}res.set('Cache-Control','public,max-age=3600').json(cached)}catch{res.status(503).json({error:'asset unavailable'})}});const crypto=require('crypto'),sessions=new Map(),lobbies=new Map();app.use(express.json({limit:'8kb'}));const attempts=new Map();function limited(req,res,next){let k=req.ip,t=Date.now(),a=attempts.get(k)||[];a=a.filter(x=>t-x<60000);if(a.length>=10)return res.status(429).json({error:'잠시 후 다시 시도하세요'});a.push(t);attempts.set(k,a);next()}function hash(p,s){return crypto.scryptSync(p,s,64).toString('hex')}function login(res,u){let token=crypto.randomBytes(32).toString('hex');sessions.set(token,{u,until:Date.now()+86400000});res.json({token,name:u})}const memberBase='https://api.github.com/repos/dor0si5523-cmd/strike-zone-members/contents/';async function memberRequest(u,method='GET',body){const token=process.env.GITHUB_MEMBERS_TOKEN;if(!token)throw Error('storage not configured');return fetch(memberBase+'members'+(u?'/'+u+'.json':''),{method,headers:{Authorization:'Bearer '+token,Accept:'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28','Content-Type':'application/json'},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(10000)})}const testMembers=process.env.NODE_ENV==='test'&&process.env.SZ_TEST_LOCAL==='1'&&!process.env.RENDER?new Map():null;async function readMember(u){if(testMembers)return testMembers.get(u)||null;let r=await memberRequest(u);if(r.status===404)return null;if(!r.ok)throw Error('storage read failed');let v=await r.json();return JSON.parse(Buffer.from(v.content,'base64').toString('utf8'))}async function createMember(u,a){if(testMembers){if(testMembers.has(u))return false;testMembers.set(u,a);return true;}let r=await memberRequest(u,'PUT',{message:'Register member',content:Buffer.from(JSON.stringify(a)).toString('base64')});if(r.status===409||r.status===422){if(await readMember(u))return false}if(!r.ok)throw Error('storage write failed');return true}app.post('/api/signup',limited,async(req,res)=>{try{let u=String(req.body?.user||'').toLowerCase(),p=String(req.body?.password||'');if(!/^[a-z0-9_]{4,20}$/.test(u)||p.length<8||p.length>128)return res.status(400).json({error:'아이디 4~20자 영문/숫자, 비밀번호 8~128자'});if(await readMember(u))return res.status(409).json({error:'이미 사용 중인 아이디'});let salt=crypto.randomBytes(16).toString('hex');if(!await createMember(u,{salt,hash:hash(p,salt),createdAt:new Date().toISOString()}))return res.status(409).json({error:'이미 사용 중인 아이디'});login(res,u)}catch{res.status(503).json({error:'회원 저장소 연결 실패'})}});app.post('/api/login',limited,async(req,res)=>{try{let u=String(req.body?.user||'').toLowerCase(),p=String(req.body?.password||''),a=/^[a-z0-9_]{4,20}$/.test(u)?await readMember(u):null;if(!a||a.banned||p.length>128||!crypto.timingSafeEqual(Buffer.from(a.hash,'hex'),Buffer.from(hash(p,a.salt),'hex')))return res.status(401).json({error:'아이디 또는 비밀번호 확인'});login(res,u)}catch{res.status(503).json({error:'회원 저장소 연결 실패'})}});const ranks=['훈련병','이등병','일등병','상등병','병장','하사','중사','상사','원사','소위','중위','대위','소령','중령','대령','준장','소장','중장','대장','원수'];function profile(a){let s=a.stats||{};let xp=s.xp||0;return {xp,points:s.points||0,kills:s.kills||0,deaths:s.deaths||0,wins:s.wins||0,games:s.games||0,level:1+Math.floor(xp/500),rank:ranks[Math.min(ranks.length-1,Math.floor(xp/500))]}}async function award(u,q,win,match){if(testMembers){let a=testMembers.get(u);if(!a)throw Error('회원 조회 실패');if((a.matches||[]).includes(match))return profile(a);let p=profile(a);a.stats={xp:p.xp+50+q.k*20+(win?100:0),points:p.points+20+q.k*5+(win?30:0),kills:p.kills+q.k,deaths:p.deaths+q.d,wins:p.wins+(win?1:0),games:p.games+1};a.matches=[...(a.matches||[]).slice(-199),match];if(a.daily?.day!==day())a.daily={day:day(),kills:0,claimed:false};a.daily.kills+=q.k;testMembers.set(u,a);return profile(a)}for(let i=0;i<4;i++){let r=await memberRequest(u);if(!r.ok)throw Error('read');let v=await r.json(),a=JSON.parse(Buffer.from(v.content,'base64').toString('utf8'));if((a.matches||[]).includes(match))return profile(a);let s=profile(a);a.stats={xp:s.xp+50+q.k*20+(win?100:0),points:s.points+20+q.k*5+(win?30:0),kills:s.kills+q.k,deaths:s.deaths+q.d,wins:s.wins+(win?1:0),games:s.games+1};a.matches=[...(a.matches||[]).slice(-199),match];if(a.daily?.day!==day())a.daily={day:day(),kills:0,claimed:false};a.daily.kills+=q.k;let w=await memberRequest(u,'PUT',{message:'Update game progression',sha:v.sha,content:Buffer.from(JSON.stringify(a)).toString('base64')});if(w.ok)return profile(a);if(![409,422].includes(w.status))throw Error('write')}throw Error('conflict')}app.get('/api/profile',async(req,res)=>{let u=identity(req.headers.authorization?.replace(/^Bearer /,''));if(!u)return res.sendStatus(401);try{let a=await readMember(u);if(!a)return res.sendStatus(404);res.json(profile(a))}catch{res.sendStatus(503)}});app.get('/api/ranking',async(req,res)=>{if(!identity(req.headers.authorization?.replace(/^Bearer /,'')))return res.sendStatus(401);if(testMembers)return res.json([...testMembers].map(([name,a])=>({name,...profile(a)})).sort((a,b)=>b.xp-a.xp).slice(0,50));try{let r=await memberRequest('');if(!r.ok)throw Error('list');let rows=await r.json();let users=rows.filter(x=>x.type==='file'&&/^[a-z0-9_]{4,20}\\.json$/.test(x.name)).slice(0,100);let out=[];for(let f of users){let u=f.name.slice(0,-5),a=await readMember(u);if(a)out.push({name:u,...profile(a)})}res.json(out.sort((a,b)=>b.xp-a.xp).slice(0,50))}catch{res.sendStatus(503)}});function identity(t){let a=sessions.get(t);return a&&a.until>Date.now()?a.u:null}function publish(){io.emit('lobbies',[...lobbies.values()].map(({password,...r})=>({...r,locked:!!password})))}function exitLobby(s){let r=lobbies.get(s.data.lobby);if(r){r.members=r.members.filter(m=>m.id!==s.id);if(!r.members.length)lobbies.delete(r.code);else if(r.host===s.id)r.host=r.members[0].id;publish()}s.data.lobby=null}
-io.on('connection',s=>{s.on('browse',v=>{let u=identity(v?.token);if(!u)return s.emit('lobbyError','로그인이 필요합니다');if(s.data.user&&s.data.user!==u)return s.emit('lobbyError','재접속 필요');s.data.user=u;s.data.authToken=v.token;publish()});s.on('createLobby',v=>{if(!identity(s.data.authToken)||s.data.room||lobbies.size>=200)return;exitLobby(s);let code=crypto.randomBytes(4).toString('hex').toUpperCase(),r={code,title:String(v?.title||'자유 대전').slice(0,32),channel:['1','2','3'].includes(v?.channel)?v.channel:'1',mode:['team','solo','bomb','practice'].includes(v?.mode)?v.mode:'solo',map:['warehouse','city','container'].includes(v?.map)?v.map:'warehouse',max:Math.max(2,Math.min(12,Number(v?.max)||8)),password:String(v?.password||'').slice(0,32),host:s.id,members:[{id:s.id,name:s.data.user,ready:true,team:0}],started:false};lobbies.set(code,r);s.data.lobby=code;s.emit('lobbyEntered',code);publish()});s.on('enterLobby',v=>{let r=lobbies.get(v?.code);if(!identity(s.data.authToken)||s.data.room||!r||r.started||r.members.length>=r.max||r.password!==String(v?.password||''))return s.emit('lobbyError','입장 불가: 인원 또는 비밀번호 확인');exitLobby(s);r.members.push({id:s.id,name:s.data.user,ready:false,team:r.members.length%2});s.data.lobby=r.code;s.emit('lobbyEntered',r.code);publish()});s.on('readyLobby',()=>{let r=lobbies.get(s.data.lobby),m=r?.members.find(m=>m.id===s.id);if(m&&!r.started){m.ready=!m.ready;publish()}});s.on('teamLobby',()=>{let r=lobbies.get(s.data.lobby),m=r?.members.find(m=>m.id===s.id);if(m&&!r.started){m.team=1-m.team;publish()}});s.on('startLobby',()=>{let r=lobbies.get(s.data.lobby);if(!identity(s.data.authToken)||!r||r.host!==s.id||r.started||!r.members.every(m=>m.ready)||(r.mode!=='practice'&&r.members.length<2)||(r.mode==='bomb'&&new Set(r.members.map(m=>m.team)).size<2))return s.emit('lobbyError','모든 인원이 준비해야 합니다');r.started=true;publish();for(let m of r.members)io.to(m.id).emit('launchLobby',{code:r.code,mode:r.mode,name:m.name})});s.on('exitLobby',()=>exitLobby(s));s.on('disconnect',()=>exitLobby(s))});
-const guns={ak:{mag:30,delay:150,damage:30,reload:1700},m4:{mag:30,delay:115,damage:24,reload:1400},sniper:{mag:5,delay:1000,damage:85,reload:2400},pistol:{mag:12,delay:280,damage:22,reload:1100},knife:{mag:1,delay:500,damage:45,reload:0}};const rooms=new Map(),walls=[[0,0,4,8],[-9,7,5,3],[9,-7,5,3],[-10,-8,3,5],[10,8,3,5],[0,12,7,2],[0,-12,7,2]];
-const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),num=v=>Number.isFinite(v)?v:0;
-const maps={warehouse:walls,city:[[-10,-10,8,8],[10,10,8,8],[-10,10,7,7],[10,-10,7,7],[0,0,3,3],[0,12,3,2],[0,-12,3,2]],container:[[-12,0,4,12],[12,0,4,12],[0,-12,12,4],[0,12,12,4],[-4,-3,3,6],[5,4,3,6]]};function blocked(x,z,walls){return Math.abs(x)>249||Math.abs(z)>249||walls.some(([a,b,w,d])=>Math.abs(x-a)<w/2+.35&&Math.abs(z-b)<d/2+.35)}
-function spawn(walls){let x=240,z=240;for(let i=0;i<200;i++){let a=Math.random()*480-240,b=Math.random()*480-240;if(!blocked(a,b,walls)){x=a;z=b;break}}return{x,z,y:0,vy:0,hp:100,ammo:30,reload:0,dead:0}}
-function teamSpawn(r,team,slot=0){let z=team===0?235:-235;for(let j=0;j<9;j++){let x=((slot+j)%9-4)*5;if(!blocked(x,z,r.walls)&&!Object.values(r.players).some(p=>!p.dead&&Math.hypot(p.x-x,p.z-z)<1.5))return {...spawn(r.walls),x,z,yaw:team===0?0:Math.PI,protectedUntil:Date.now()+4500}}return {...spawn(r.walls),x:team===0?235:-235,z,protectedUntil:Date.now()+4500}}
-function botPath(r,p,g){let sx=Math.round(p.x/4)*4,sz=Math.round(p.z/4)*4,gx=Math.round(g.x/4)*4,gz=Math.round(g.z/4)*4,key=(x,z)=>x+','+z,queue=[[sx,sz]],prev=new Map([[key(sx,sz),null]]),best=queue[0];for(let i=0;i<queue.length&&i<16000;i++){let [x,z]=queue[i];if(Math.hypot(x-gx,z-gz)<Math.hypot(best[0]-gx,best[1]-gz))best=[x,z];if(x===gx&&z===gz)break;for(let [dx,dz] of [[4,0],[-4,0],[0,4],[0,-4]]){let a=x+dx,b=z+dz,k=key(a,b);if(prev.has(k)||blocked(a,b,r.walls)||[.25,.5,.75].some(t=>blocked(x+dx*t,z+dz*t,r.walls)))continue;prev.set(k,[x,z]);queue.push([a,b])}}let out=[];while(prev.get(key(...best))){out.unshift(best);best=prev.get(key(...best))}return out}
-function botThink(r,p,id,now){let visible=Object.values(r.players).filter(q=>q.team!==p.team&&!q.dead&&now>=(q.protectedUntil||0)).map(q=>({q,d:Math.hypot(q.x-p.x,q.z-p.z)})).filter(({q,d})=>d<15&&d>.01&&!r.walls.some(([x,z,w,h])=>ray([p.x,1.4,p.z],[(q.x-p.x)/d,0,(q.z-p.z)/d],[[x-w/2,x+w/2],[0,3],[z-h/2,z+h/2]])<d)).sort((a,b)=>a.d-b.d)[0];if(now<(p.protectedUntil||0)){p.input={};p.seen=now;return}if(visible){let {q,d}=visible;if(p.target!==q){p.target=q;p.react=now+650}p.yaw=Math.atan2(q.x-p.x,p.z-q.z)+Math.sin(now/250+Number(id.slice(4)))*.025;p.pitch=-.12;p.input={f:d>8?.45:0,s:Math.sin(now/700+Number(id.slice(4)))*.35,fire:now>=p.react,reload:p.ammo<3};p.path=null}else{p.target=null;let target=Object.values(r.players).filter(q=>q.team!==p.team&&!q.dead&&now>=(q.protectedUntil||0)).map(q=>({q,d:Math.hypot(q.x-p.x,q.z-p.z)})).sort((a,b)=>a.d-b.d)[0];if(target){let base=Math.atan2(target.q.x-p.x,p.z-target.q.z),offsets=[0,.3927,-.3927,.7854,-.7854,1.1781,-1.1781,1.5708,-1.5708,2.3562,-2.3562,Math.PI],best=Infinity;for(let offset of offsets){let yaw=base+offset,nx=p.x+Math.sin(yaw)*.2125,nz=p.z-Math.cos(yaw)*.2125;if(blocked(nx,nz,r.walls))continue;let score=Math.hypot(target.q.x-nx,target.q.z-nz)+Math.abs(offset)*.35;if(score<best){best=score;p.yaw=yaw}}p.input={f:best<Infinity?.85:0,reload:p.ammo<3}}else p.input={};p.pitch=0}p.seen=now}
-function leave(s){let c=s.data.room,r=rooms.get(c);if(r){delete r.players[s.id];if(!Object.keys(r.players).some(k=>!k.startsWith('bot:')))rooms.delete(c)}if(c)s.leave(c);s.data.room=null}
-io.on('connection',s=>{s.on('join',async v=>{if(!v||typeof v!=='object')return;if(!s.data.user||!lobbies.get(s.data.lobby)?.started||s.data.room)return;if(s.data.joinPending)return;s.data.joinPending=true;let member;try{member=await readMember(s.data.user)}catch{s.emit('errorMsg','회원 정보 조회 실패');return}finally{s.data.joinPending=false}if(!member||member.banned||!s.connected||!identity(s.data.authToken)||!lobbies.get(s.data.lobby)?.started||s.data.room)return;v.name=s.data.user;v.code=s.data.lobby;v.mode=lobbies.get(s.data.lobby).mode;let c=String(v.code||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,12)||Math.random().toString(36).slice(2,8).toUpperCase();let r=rooms.get(c);if(r&&Object.keys(r.players).length>=12&&!r.players[s.id])return s.emit('errorMsg','방이 가득 찼습니다.');leave(s);r=rooms.get(c);if(!r){r={mode:v.mode,map:lobbies.get(s.data.lobby).map||'warehouse',walls:(maps[lobbies.get(s.data.lobby).map]||walls).map(([x,z,w,d])=>[x*12.5,z*12.5,w*2.5,d*2.5]).concat([[-25,220,24,3],[25,220,24,3],[-25,-220,24,3],[25,-220,24,3],[0,210,12,3],[0,-210,12,3]],Array.from({length:80},(_,i)=>{let x=(i%10-4.5)*44,z=(Math.floor(i/10)-3.5)*48;return [x,z,12+(i%3)*4,8+(i%4)*3]})),bomb:null,players:{},score:[0,0],ends:Date.now()+300000,finished:false,match:crypto.randomUUID()};rooms.set(c,r)}let a=Object.values(r.players),team=a.filter(p=>p.team===0).length<=a.filter(p=>p.team===1).length?0:1;team=r.mode==='practice'?0:(lobbies.get(s.data.lobby)?.members.find(m=>m.id===s.id)?.team??team);r.players[s.id]={owned:member.owned||['ak'],...(['practice','team','bomb'].includes(r.mode)?teamSpawn(r,team,4):spawn(r.walls)),name:String(v.name||'Player').slice(0,20),team,k:0,d:0,yaw:r.mode==='practice'&&team===1?Math.PI:0,pitch:0,weapon:'ak',magazines:{ak:30,m4:30,sniper:5,pistol:12,knife:1},lastShot:0,streak:0,seen:0,input:{}};if(r.mode==='practice'&&!r.players['bot:0'])for(let i=0;i<7;i++)r.players['bot:'+i]={...teamSpawn(r,i<3?0:1,i),name:(i<3?'RED ':'BLUE ')+(i+1),team:i<3?0:1,k:0,d:0,yaw:i<3?0:Math.PI,pitch:0,weapon:'m4',magazines:{ak:30,m4:30,sniper:5,pistol:12,knife:1},lastShot:0,streak:0,seen:0,input:{}};s.data.room=c;s.join(c);s.emit('joined',{code:c,mode:r.mode,map:r.map,id:s.id,walls:r.walls,owned:r.mode==='practice'?Object.keys(guns):r.players[s.id].owned});});s.on('objective',()=>{let r=rooms.get(s.data.room),p=r?.players[s.id];if(!identity(s.data.authToken)||!r||r.mode!=='bomb'||r.finished||!p||p.dead||Math.hypot(p.x,p.z-200)>3)return;if(p.team===0&&!r.bomb){r.bomb={ends:Date.now()+30000};r.ends=Math.max(r.ends,r.bomb.ends);io.to(s.data.room).emit('objectiveNotice','목표 설치 완료')}else if(p.team===1&&r.bomb){r.objectiveWinner='BLUE TEAM';r.ends=0}});s.on('input',v=>{let p=rooms.get(s.data.room)?.players[s.id];if(!identity(s.data.authToken)||!p||!v||typeof v!=='object')return;let t=Date.now();if(t-(s.data.lastInput||0)<15)return;s.data.lastInput=t;if(Object.hasOwn(guns,v.weapon)&&(rooms.get(s.data.room).mode==='practice'||p.owned?.includes(v.weapon)||v.weapon==='ak')&&v.weapon!==p.weapon&&!p.dead){p.magazines[p.weapon]=p.ammo;p.weapon=v.weapon;p.ammo=p.magazines[p.weapon];p.reload=0}p.input={f:clamp(num(v.f),-1,1),s:clamp(num(v.s),-1,1),jump:v.jump===true,crouch:v.crouch===true,sprint:v.sprint===true,aim:v.aim===true,fire:v.fire===true,reload:v.reload===true};p.yaw=num(v.yaw)%(Math.PI*2);p.pitch=clamp(num(v.pitch),-1.4,1.4);p.seen=Date.now()});s.on('exitLobby',()=>leave(s));s.on('disconnect',()=>leave(s))});
-function ray(o,d,b){let n=0,f=60;for(let i=0;i<3;i++){if(Math.abs(d[i])<1e-8){if(o[i]<b[i][0]||o[i]>b[i][1])return Infinity;continue}let a=(b[i][0]-o[i])/d[i],z=(b[i][1]-o[i])/d[i];n=Math.max(n,Math.min(a,z));f=Math.min(f,Math.max(a,z));if(n>f)return Infinity}return n}
-setInterval(()=>{let now=Date.now();for(let[c,r]of rooms){if(r.finished){if(now-(r.finishedAt||now)>120000){for(let sid of Object.keys(r.players)){let s=io.sockets.sockets.get(sid);if(s){leave(s);exitLobby(s)}}rooms.delete(c)}continue;}if(r.bomb&&!r.objectiveWinner&&now>=r.bomb.ends){r.objectiveWinner='RED TEAM';r.ends=0}if(now>=r.ends|| (r.mode==='bomb'?false:r.mode==='team'?Math.max(...r.score)>=30:Object.values(r.players).some(p=>p.k>=20))){r.finished=true;r.finishedAt=now;let ranking=Object.values(r.players).map(p=>({name:p.name,k:p.k,d:p.d,team:p.team})).sort((a,b)=>b.k-a.k||a.d-b.d);let winner=r.mode==='bomb'?(r.objectiveWinner||'BLUE TEAM'):r.mode==='team'?(r.score[0]===r.score[1]?'무승부':r.score[0]>r.score[1]?'RED TEAM':'BLUE TEAM'):(ranking[0]?.name||'무승부');io.to(c).emit('matchEnd',{winner,ranking,score:r.score});if(r.mode!=='practice'&&Object.keys(r.players).filter(k=>!k.startsWith('bot:')).length>=2){for(let [sid,q] of Object.entries(r.players)){if(sid.startsWith('bot:'))continue;let win=['team','bomb'].includes(r.mode)?winner===(q.team?'BLUE TEAM':'RED TEAM'):winner===q.name;award(q.name,q,win,r.match).then(p=>io.to(sid).emit('progressSaved',p)).catch(()=>io.to(sid).emit('progressError','전적 저장 실패'))}}continue}for(let[id,p]of Object.entries(r.players)){if(p.dead){if(now>=p.dead&&r.mode!=='bomb'){Object.assign(p,['practice','team'].includes(r.mode)?teamSpawn(r,p.team,Math.floor(Math.random()*9)):spawn(r.walls));p.path=null;p.target=null;p.magazines={ak:30,m4:30,sniper:5,pistol:12,knife:1};p.ammo=guns[p.weapon].mag}continue}if(id.startsWith('bot:'))botThink(r,p,id,now);let v=now-p.seen<500?p.input:{},f=v.f||0,s=v.s||0,n=Math.max(1,Math.hypot(f,s)),speed=v.crouch?.13:v.sprint&&!v.fire&&!v.aim?.34:.25,dx=(Math.sin(p.yaw)*f+Math.cos(p.yaw)*s)*speed/n,dz=(-Math.cos(p.yaw)*f+Math.sin(p.yaw)*s)*speed/n;if(!blocked(p.x+dx,p.z,r.walls))p.x+=dx;if(!blocked(p.x,p.z+dz,r.walls))p.z+=dz;p.crouch=!!v.crouch;p.speed=Math.hypot(dx,dz)*20;if(v.jump&&!p.crouch&&p.y===0)p.vy=5;p.vy-=.49;p.y=Math.max(0,p.y+p.vy*.05);if(!p.y)p.vy=0;let gun=guns[p.weapon];if(p.reload&&now>=p.reload){p.ammo=gun.mag;p.reload=0}if(p.weapon!=='knife'&&(v.reload||!p.ammo)&&!p.reload&&p.ammo<gun.mag)p.reload=now+gun.reload;if(now<(p.protectedUntil||0)||!v.fire||p.reload||!p.ammo||now-p.lastShot<gun.delay)continue;p.lastShot=now;if(p.weapon!=='knife')p.ammo--;let o=[p.x,p.y+(p.crouch?1.05:1.55),p.z],d=[Math.sin(p.yaw)*Math.cos(p.pitch),Math.sin(p.pitch),-Math.cos(p.yaw)*Math.cos(p.pitch)],near=Math.min(p.weapon==='knife'?2:60,...r.walls.map(([x,z,w,h])=>ray(o,d,[[x-w/2,x+w/2],[0,3],[z-h/2,z+h/2]]))),target,targetId;for(let[j,q]of Object.entries(r.players)){if(j===id||q.dead||now<(q.protectedUntil||0)||(['team','bomb','practice'].includes(r.mode)&&p.team===q.team))continue;let t=ray(o,d,[[q.x-.42,q.x+.42],[q.y,q.y+(q.crouch?1.25:1.85)],[q.z-.42,q.z+.42]]);if(t<near){near=t;target=q;targetId=j}}let head=false,damage=0;if(target){let hitY=o[1]+d[1]*near-target.y;head=hitY>=(target.crouch?1:1.45);damage=head?Math.min(100,gun.damage*4):hitY<.65?Math.round(gun.damage*.7):gun.damage;target.hp=Math.max(0,target.hp-damage);if(!target.hp){target.dead=now+3000;target.d++;target.streak=0;p.k++;p.streak++;r.score[p.team]++;io.to(c).emit('killFeed',{killer:p.name,victim:target.name,head,streak:p.streak});}}io.to(c).emit('shot',{id,targetId,hit:!!target,head,damage,weapon:p.weapon,origin:o,end:o.map((v,i)=>v+d[i]*near),impact:near<60})}let players={};for(let[id,p]of Object.entries(r.players)){let{x,z,y,hp,ammo,reload,dead,name,team,k,d,yaw,weapon,crouch,speed}=p;players[id]={x,z,y,hp,ammo,reload,dead,name,team,k,d,yaw,weapon,crouch,speed}}io.to(c).volatile.emit('state',{p:players,score:r.score,remaining:Math.max(0,r.ends-now),objective:r.bomb?Math.max(0,r.bomb.ends-now):null})}},50);
+const express = require('express');
+const crypto = require('node:crypto');
+const http = require('node:http');
 
-const validUser=u=>typeof u==='string'&&/^[a-z0-9_]{4,20}$/.test(u);
-async function editSocial(u,fn){if(testMembers){let a=testMembers.get(u);if(!a)throw Error('회원 조회 실패');a.social||={friends:[],clan:null};fn(a.social);testMembers.set(u,a);return a.social}for(let i=0;i<4;i++){let r=await memberRequest(u);if(!r.ok)throw Error('회원 조회 실패');let v=await r.json(),a=JSON.parse(Buffer.from(v.content,'base64').toString('utf8'));a.social||={friends:[],clan:null};fn(a.social);let w=await memberRequest(u,'PUT',{message:'Update community',sha:v.sha,content:Buffer.from(JSON.stringify(a)).toString('base64')});if(w.ok)return a.social;if(![409,422].includes(w.status))throw Error('저장 실패')}throw Error('다시 시도하세요')}
-function online(u){return [...io.sockets.sockets.values()].filter(s=>s.data.user===u)}
-io.on('connection',s=>{let last=0,busy=false;function reply(ok,message){s.emit('socialNotice',{ok,message})}async function run(fn){if(!identity(s.data.authToken)||busy)return;busy=true;try{await fn(s.data.user)}catch(e){reply(false,e.message||'요청 실패')}finally{busy=false}}
-async function show(u){let a=await readMember(u);let v=a?.social||{friends:[],clan:null};s.emit('socialData',{friends:v.friends.map(name=>({name,online:online(name).length>0})),clan:v.clan})}
-s.on('socialList',()=>run(show));s.on('friendAdd',v=>run(async u=>{let t=v?.name;if(!validUser(t)||t===u||!await readMember(t))throw Error('회원 아이디 확인');await editSocial(u,a=>{if(!a.friends.includes(t)){if(a.friends.length>=100)throw Error('친구 목록 가득 참');a.friends.push(t)}});await show(u)}));s.on('friendRemove',v=>run(async u=>{await editSocial(u,a=>{a.friends=a.friends.filter(x=>x!==v?.name)});await show(u)}));
-s.on('clanCreate',v=>run(async u=>{let name=String(v?.name||'').trim();if(!/^[가-힣a-zA-Z0-9_ ]{2,16}$/.test(name))throw Error('클랜 이름 2~16자');await editSocial(u,a=>{if(a.clan)throw Error('기존 클랜 탈퇴 필요');a.clan={name,owner:u}});await show(u)}));s.on('clanJoin',v=>run(async u=>{if(!validUser(v?.name))throw Error('클랜장 아이디 확인');let a=await readMember(v.name),clan=a?.social?.clan;if(!clan||clan.owner!==v.name)throw Error('클랜 없음');await editSocial(u,a=>{if(a.clan)throw Error('기존 클랜 탈퇴 필요');a.clan=clan});await show(u)}));s.on('clanLeave',()=>run(async u=>{await editSocial(u,a=>{a.clan=null});await show(u)}));
-s.on('friendInvite',v=>run(async u=>{let a=await readMember(u),r=lobbies.get(s.data.lobby);if(!r||r.started||r.password||!a?.social?.friends.includes(v?.name))throw Error('공개 대기방과 친구 필요');let targets=online(v.name);if(!targets.length)throw Error('친구 오프라인');for(let t of targets)t.emit('friendInvitation',{from:u,code:r.code,title:r.title});reply(true,'초대 전송')}));
-s.on('chatSend',v=>{let u=s.data.user,now=Date.now();if(!identity(s.data.authToken)||!u||now-last<800||typeof v?.text!=='string')return;last=now;let msg=v.text.trim().slice(0,200);if(!msg)return;let kind=v.kind,packet={from:u,text:msg,kind};if(kind==='all'){for(let t of io.sockets.sockets.values())if(t.data.user)t.emit('chatMessage',packet)}else if(kind==='team'){let r=lobbies.get(s.data.lobby),me=r?.members.find(m=>m.id===s.id);if(me)for(let m of r.members)if(m.team===me.team)io.to(m.id).emit('chatMessage',packet)}else if(kind==='whisper'&&validUser(v.to)){let ts=online(v.to);if(!ts.length)return reply(false,'상대방 오프라인');for(let t of ts)t.emit('chatMessage',packet);s.emit('chatMessage',{...packet,to:v.to})}});
-});
-io.on('connection',s=>s.on('latencyCheck',ack=>{if(typeof ack==='function')ack()}));setInterval(()=>{let now=Date.now();for(let [k,v] of sessions)if(v.until<=now)sessions.delete(k);for(let [k,v] of attempts){let a=v.filter(t=>now-t<60000);if(a.length)attempts.set(k,a);else attempts.delete(k)}for(let s of io.sockets.sockets.values())if(s.data.user&&!identity(s.data.authToken))s.disconnect(true)},60000).unref();
-const adminUser=(process.env.ADMIN_USERNAME||'').toLowerCase();let announcement='';
-function admin(s){return !!adminUser&&s.data.user===adminUser&&identity(s.data.authToken)===adminUser}
-async function editAccount(u,fn){if(testMembers){let a=testMembers.get(u);if(!a)throw Error('회원 조회 실패');fn(a);testMembers.set(u,a);return a}for(let i=0;i<4;i++){let r=await memberRequest(u);if(!r.ok)throw Error('회원 조회 실패');let v=await r.json(),a=JSON.parse(Buffer.from(v.content,'base64').toString('utf8'));fn(a);let w=await memberRequest(u,'PUT',{message:'Update account',sha:v.sha,content:Buffer.from(JSON.stringify(a)).toString('base64')});if(w.ok)return a;if(![409,422].includes(w.status))throw Error('저장 실패')}throw Error('저장 충돌')}
-const shop={m4:100,sniper:250,pistol:50,knife:50};const day=()=>new Date(Date.now()+32400000).toISOString().slice(0,10);
-function storeView(a){return {points:profile(a).points,owned:a.owned||['ak'],attendance:a.attendance||'',today:day(),mission:a.daily?.day===day()?a.daily:{day:day(),kills:0,claimed:false}}}
-io.on('connection',s=>{let busy=false;async function act(fn){if(!s.data.user||busy||!identity(s.data.authToken))return;busy=true;try{await fn(s.data.user)}catch(e){s.emit('storeError',e.message)}finally{busy=false}}
-s.on('storeList',()=>act(async u=>s.emit('storeData',storeView(await readMember(u)))));
-s.on('buyItem',v=>act(async u=>{let k=v?.key;if(!Object.hasOwn(shop,k))throw Error('상품 없음');let a=await editAccount(u,a=>{a.owned||=['ak'];if(a.owned.includes(k))throw Error('이미 보유');a.stats||={};if((a.stats.points||0)<shop[k])throw Error('포인트 부족');a.stats.points-=shop[k];a.owned.push(k)});s.emit('storeData',storeView(a))}));
-s.on('attendance',()=>act(async u=>{let a=await editAccount(u,a=>{if(a.attendance===day())throw Error('오늘 출석 완료');a.attendance=day();a.stats||={};a.stats.points=(a.stats.points||0)+50});s.emit('storeData',storeView(a))}));
-s.on('claimMission',()=>act(async u=>{let a=await editAccount(u,a=>{if(a.daily?.day!==day()||a.daily.kills<10||a.daily.claimed)throw Error('미션 미완료 또는 이미 수령');a.daily.claimed=true;a.stats||={};a.stats.points=(a.stats.points||0)+100});s.emit('storeData',storeView(a))}));
-s.on('adminList',()=>{if(admin(s))s.emit('adminData',{users:[...new Set([...io.sockets.sockets.values()].map(t=>t.data.user).filter(Boolean))],announcement})});
-s.on('adminKick',v=>{if(admin(s)&&validUser(v?.name)&&v.name!==adminUser)for(let t of online(v.name))t.disconnect(true)});
-s.on('adminBan',v=>act(async u=>{if(!admin(s)||!validUser(v?.name)||v.name===adminUser)return;await editAccount(v.name,a=>{a.banned=v.banned===true});if(v.banned)for(let t of online(v.name)){sessions.delete(t.data.authToken);t.disconnect(true)}s.emit('storeError','계정 상태 변경 완료')}));
-s.on('adminAnnouncement',v=>{if(admin(s)){announcement=String(v?.text||'').slice(0,300);io.emit('announcement',announcement)}});
-s.on('requestAnnouncement',()=>s.emit('announcement',announcement));
-});
-server.listen(Number(process.env.PORT)||3000,'0.0.0.0');
+const app = express();
+const server = http.createServer(app);
+const port = Number(process.env.PORT) || 3000;
+const sessions = new Map();
+const attempts = new Map();
+const memberBase = 'https://api.github.com/repos/dor0si5523-cmd/strike-zone-members/contents/';
+const WORLD = { width: 2600, height: 1900 };
+const DEFAULT_RPG = Object.freeze({ xp: 0, gold: 40, kills: 0, questStage: 0, questKills: 0, potions: 3, x: 1300, y: 1070, hp: 100 });
+const testMembers = process.env.NODE_ENV === 'test' && process.env.SZ_TEST_LOCAL === '1' && !process.env.RENDER ? new Map() : null;
 
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
+app.use(express.json({ limit: '8kb' }));
+app.use(express.static('public', { setHeaders(res, file) {
+  if (/\.(js|html|css|webmanifest)$/.test(file)) res.setHeader('Cache-Control', 'no-cache');
+} }));
+app.get('/health', (_req, res) => res.json({ ok: true, version: '5.0', uptime: Math.floor(process.uptime()) }));
+
+function hash(password, salt) { return crypto.scryptSync(password, salt, 64).toString('hex'); }
+function issueSession(res, user) {
+  const token = crypto.randomBytes(32).toString('hex');
+  sessions.set(token, { user, expiresAt: Date.now() + 86400000 });
+  res.json({ token, name: user });
+}
+function identity(token) {
+  const session = sessions.get(token);
+  if (!session || session.expiresAt <= Date.now()) return null;
+  return session.user;
+}
+function requestUser(req) { return identity(req.headers.authorization?.replace(/^Bearer /, '')); }
+function rateLimit(req, res, next) {
+  const now = Date.now();
+  const key = req.ip;
+  const recent = (attempts.get(key) || []).filter(time => now - time < 60000);
+  if (recent.length >= 10) return res.status(429).json({ error: '잠시 후 다시 시도하세요' });
+  recent.push(now);
+  attempts.set(key, recent);
+  next();
+}
+async function memberRequest(user, method = 'GET', body) {
+  const token = process.env.GITHUB_MEMBERS_TOKEN;
+  if (!token) throw new Error('storage not configured');
+  const path = memberBase + 'members' + (user ? '/' + user + '.json' : '');
+  return fetch(path, {
+    method,
+    headers: {
+      Authorization: 'Bearer ' + token,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type': 'application/json'
+    },
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(10000)
+  });
+}
+async function readMember(user) {
+  if (testMembers) return testMembers.get(user) || null;
+  const response = await memberRequest(user);
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error('storage read failed');
+  const file = await response.json();
+  return JSON.parse(Buffer.from(file.content, 'base64').toString('utf8'));
+}
+async function createMember(user, account) {
+  if (testMembers) {
+    if (testMembers.has(user)) return false;
+    testMembers.set(user, account);
+    return true;
+  }
+  const response = await memberRequest(user, 'PUT', {
+    message: 'Register member',
+    content: Buffer.from(JSON.stringify(account)).toString('base64')
+  });
+  if (response.status === 409 || response.status === 422) {
+    if (await readMember(user)) return false;
+  }
+  if (!response.ok) throw new Error('storage write failed');
+  return true;
+}
+async function editMember(user, change) {
+  if (testMembers) {
+    const account = testMembers.get(user);
+    if (!account) throw new Error('회원 조회 실패');
+    change(account);
+    testMembers.set(user, account);
+    return account;
+  }
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const response = await memberRequest(user);
+    if (!response.ok) throw new Error('회원 조회 실패');
+    const file = await response.json();
+    const account = JSON.parse(Buffer.from(file.content, 'base64').toString('utf8'));
+    change(account);
+    const saved = await memberRequest(user, 'PUT', {
+      message: 'Save Ashen Vale character',
+      sha: file.sha,
+      content: Buffer.from(JSON.stringify(account)).toString('base64')
+    });
+    if (saved.ok) return account;
+    if (saved.status !== 409 && saved.status !== 422) throw new Error('저장 실패');
+  }
+  throw new Error('저장 충돌');
+}
+function sanitizeRpg(value = {}) {
+  const number = (key, min, max, fallback) => {
+    const n = Number(value[key]);
+    return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
+  };
+  return {
+    xp: Math.floor(number('xp', 0, 999999, DEFAULT_RPG.xp)),
+    gold: Math.floor(number('gold', 0, 9999999, DEFAULT_RPG.gold)),
+    kills: Math.floor(number('kills', 0, 999999, DEFAULT_RPG.kills)),
+    questStage: Math.floor(number('questStage', 0, 2, DEFAULT_RPG.questStage)),
+    questKills: Math.floor(number('questKills', 0, 999, DEFAULT_RPG.questKills)),
+    potions: Math.floor(number('potions', 0, 99, DEFAULT_RPG.potions)),
+    x: number('x', 48, WORLD.width - 48, DEFAULT_RPG.x),
+    y: number('y', 48, WORLD.height - 48, DEFAULT_RPG.y),
+    hp: number('hp', 1, 100, DEFAULT_RPG.hp)
+  };
+}
+
+app.post('/api/signup', rateLimit, async (req, res) => {
+  try {
+    const user = String(req.body?.user || '').toLowerCase();
+    const password = String(req.body?.password || '');
+    if (!/^[a-z0-9_]{4,20}$/.test(user) || password.length < 8 || password.length > 128) {
+      return res.status(400).json({ error: '아이디 4~20자 영문/숫자, 비밀번호 8~128자' });
+    }
+    if (await readMember(user)) return res.status(409).json({ error: '이미 사용 중인 아이디' });
+    const salt = crypto.randomBytes(16).toString('hex');
+    const account = { salt, hash: hash(password, salt), createdAt: new Date().toISOString() };
+    if (!await createMember(user, account)) return res.status(409).json({ error: '이미 사용 중인 아이디' });
+    issueSession(res, user);
+  } catch {
+    res.status(503).json({ error: '회원 저장소 연결 실패' });
+  }
+});
+app.post('/api/login', rateLimit, async (req, res) => {
+  try {
+    const user = String(req.body?.user || '').toLowerCase();
+    const password = String(req.body?.password || '');
+    const account = /^[a-z0-9_]{4,20}$/.test(user) ? await readMember(user) : null;
+    if (!account || account.banned || password.length > 128 || !crypto.timingSafeEqual(Buffer.from(account.hash, 'hex'), Buffer.from(hash(password, account.salt), 'hex'))) {
+      return res.status(401).json({ error: '아이디 또는 비밀번호 확인' });
+    }
+    issueSession(res, user);
+  } catch {
+    res.status(503).json({ error: '회원 저장소 연결 실패' });
+  }
+});
+app.get('/api/rpg', async (req, res) => {
+  const user = requestUser(req);
+  if (!user) return res.sendStatus(401);
+  try {
+    const account = await readMember(user);
+    if (!account) return res.sendStatus(404);
+    res.json(sanitizeRpg(account.rpg || DEFAULT_RPG));
+  } catch {
+    res.status(503).json({ error: '캐릭터 저장소를 불러오지 못했습니다' });
+  }
+});
+app.post('/api/rpg/save', async (req, res) => {
+  const user = requestUser(req);
+  if (!user) return res.sendStatus(401);
+  try {
+    const rpg = sanitizeRpg(req.body || {});
+    const account = await editMember(user, record => { record.rpg = rpg; });
+    res.json({ ok: true, rpg: sanitizeRpg(account.rpg) });
+  } catch {
+    res.status(503).json({ error: '캐릭터 저장 실패 · 잠시 후 다시 시도하세요' });
+  }
+});
+
+server.listen(port, '0.0.0.0');
