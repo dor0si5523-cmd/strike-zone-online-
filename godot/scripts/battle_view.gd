@@ -388,7 +388,7 @@ func _draw_player(cam: Vector2) -> void:
 		draw_arc(target + Vector2(0, -2), 28, 0, TAU, 32, Color("#e7c87b99"), 1.5)
 
 func _draw_minimap(view: Vector2) -> void:
-	var box := Rect2(Vector2(view.x - 100, view.y - 158), Vector2(86, 96))
+	var box := Rect2(Vector2(view.x - 100, view.y - 224), Vector2(86, 96))
 	draw_rect(box, Color("#101915cc"), true)
 	draw_rect(box, Color("#e7c87b88"), false, 1)
 	for mob in mobs:
@@ -396,4 +396,5 @@ func _draw_minimap(view: Vector2) -> void:
 		var rel: Vector2 = (mob["position"] - player) / WORLD_SIZE * 72.0
 		draw_circle(box.position + Vector2(43, 48) + rel, 2, Color("#e18b70"))
 	draw_circle(box.position + Vector2(43, 48), 3, Color("#e7c87b"))
+
 
