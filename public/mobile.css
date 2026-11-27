@@ -77,3 +77,9 @@
   .modal{padding:calc(env(safe-area-inset-top) + 10px) 10px calc(env(safe-area-inset-bottom) + 10px)}
   .modal-panel{max-height:calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 20px);overflow:auto;overscroll-behavior:contain}
 }
+
+.menu-dropdown{grid-template-columns:repeat(2,minmax(0,1fr));min-width:min(320px,calc(100vw - 24px));padding:8px;gap:5px;transform-origin:top right}
+.menu-dropdown:not([hidden]){animation:tabsDrop .16s ease-out both}
+.menu-dropdown button{min-width:0;min-height:36px;padding:8px 10px;text-align:left;background:#1b2924;border:1px solid #d8d2ad35;border-radius:7px;font-size:11px;white-space:nowrap}
+@keyframes tabsDrop{from{opacity:0;transform:translateY(-8px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+@media(max-width:680px) and (orientation:portrait){.menu-dropdown{max-width:min(360px,calc(100vw - 18px));max-height:calc(100dvh - env(safe-area-inset-top) - 130px);overflow-y:auto}}
