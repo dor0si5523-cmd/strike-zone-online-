@@ -8,3 +8,8 @@ Place transparent PNGs in this folder and register each one in `public/equipment
 - Leave transparent padding around the artwork. For weapons, draw the handle toward the bottom of an upright image and set `grip` to the handle position.
 
 The renderer keeps a procedural fallback until a matching visual is registered, so missing artwork never appears as a detached world object.
+
+
+## Archer bow set
+
+The five equipped bow looks use `bow_ashwood`, `bow_moonsteel`, `bow_ember`, `bow_thornvine`, and `bow_starfall`. Archer weapon summons select one of these stable appearance keys; older archer weapons are assigned a stable bow appearance when loaded.

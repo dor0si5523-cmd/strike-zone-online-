@@ -46,6 +46,7 @@ const GACHA_PRICES = { gold: { 1: 500, 10: 4500 }, cash: { 1: 100, 10: 900 } };
 const GACHA_PITY = { epic: 30, legendary: 100 };
 const DUPLICATE_GOLD = { common: 80, uncommon: 150, rare: 350, epic: 1200, legendary: 4000 };
 const GEAR_RARITY = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+const ARCHER_BOWS = [{ name: '솔바람 장궁', visualKey: 'bow_ashwood' }, { name: '월강성궁', visualKey: 'bow_moonsteel' }, { name: '잿불 파쇄궁', visualKey: 'bow_ember' }, { name: '가시덩굴 정령궁', visualKey: 'bow_thornvine' }, { name: '별빛 왕관궁', visualKey: 'bow_starfall' }];
 const GEAR_NAMES = {
   weapon: ['숲길잡이 단검', '달빛 강철검', '고블린 파쇄자'],
   armor: ['수호자의 가죽 갑옷', '잿빛 망토', '숲의 비늘 갑옷'],
@@ -204,6 +205,8 @@ async function editMember(user, change) {
   }
   throw new Error('저장 충돌');
 }
+function legacyWeaponVisualKey(item, classId, index = 0) { const existing = String(item?.visualKey || ''); if (existing.startsWith('bow_')) return existing; if (classId === 'archer' && item?.slot === 'weapon') { if (String(item?.id || '').startsWith('starter_')) return 'bow_ashwood'; let hash = 0; for (const char of String(item?.id || item?.name || index)) hash = (hash * 31 + char.charCodeAt(0)) >>> 0; return ARCHER_BOWS[hash % ARCHER_BOWS.length].visualKey; } return existing || (String(item?.id || '').startsWith('starter_') ? String(item.id) : `${item?.slot || 'weapon'}_${item?.rarity || 'common'}`); }
+function legacyWeaponName(item, classId, index = 0) { if (classId !== 'archer' || item?.slot !== 'weapon' || String(item?.visualKey || '').startsWith('bow_')) return String(item?.name || '낡은 장비').slice(0, 32); const key = legacyWeaponVisualKey(item, classId, index), bow = ARCHER_BOWS.find(entry => entry.visualKey === key), prefix = { common: '낡은', uncommon: '정교한', rare: '빛나는', epic: '영웅의', legendary: '전설의' }[item?.rarity] || '낡은'; return `${prefix} ${bow?.name || '솔바람 장궁'}`.slice(0, 32); }
 function sanitizeRpg(value = {}) {
   const number = (key, min, max, fallback) => {
     const n = Number(value[key]);
@@ -232,8 +235,8 @@ function sanitizeRpg(value = {}) {
     enhancements,
     items: Array.isArray(value.items) ? value.items.slice(0, 60).map((item, index) => ({
       id: String(item?.id || `gear_${index}`).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48),
-      visualKey: String(item?.visualKey || (String(item?.id || '').startsWith('starter_') ? item.id : `${item?.slot || 'weapon'}_${item?.rarity || 'common'}`)).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48),
-      name: String(item?.name || '낡은 장비').slice(0, 32),
+      visualKey: legacyWeaponVisualKey(item, value.classId, index).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48),
+      name: legacyWeaponName(item, value.classId, index),
       slot: ['weapon', 'armor', 'boots', 'ring'].includes(item?.slot) ? item.slot : 'weapon',
       rarity: ['common', 'uncommon', 'rare', 'epic', 'legendary'].includes(item?.rarity) ? item.rarity : 'common',
       atk: Math.floor(numberFrom(item?.atk, 0, 300, 0)),
@@ -316,17 +319,19 @@ function characterLevel(xp) {
   while (remaining >= needed && level < 60) { remaining -= needed; level++; needed = 120 + (level - 1) * 45; }
   return level;
 }
-function generateGachaGear(level, forcedRarity = null) {
+function generateGachaGear(level, forcedRarity = null, classId = 'warrior') {
   const roll = crypto.randomInt(10000);
   const rarity = forcedRarity || (roll < 6000 ? 'common' : roll < 8500 ? 'uncommon' : roll < 9600 ? 'rare' : roll < 9950 ? 'epic' : 'legendary');
   const multiplier = { common: 1, uncommon: 1.35, rare: 1.8, epic: 2.5, legendary: 3.5 }[rarity];
   const slot = ['weapon', 'armor', 'boots', 'ring'][crypto.randomInt(4)];
   const prefix = { common: '낡은', uncommon: '정교한', rare: '빛나는', epic: '영웅의', legendary: '전설의' }[rarity];
+  const bow = slot === 'weapon' && classId === 'archer' ? ARCHER_BOWS[crypto.randomInt(ARCHER_BOWS.length)] : null;
+  const gearName = bow?.name || GEAR_NAMES[slot][crypto.randomInt(GEAR_NAMES[slot].length)];
   const base = Math.max(1, Math.round(level * multiplier * (slot === 'weapon' ? 2.5 : 1)));
   return {
     id: 'gacha_' + crypto.randomUUID(),
-    visualKey: `${slot}_${rarity}`,
-    name: `${prefix} ${GEAR_NAMES[slot][crypto.randomInt(GEAR_NAMES[slot].length)]}`,
+    visualKey: bow?.visualKey || `${slot}_${rarity}`,
+    name: `${prefix} ${gearName}`,
     slot, rarity,
     atk: slot === 'weapon' ? base : Math.floor(base * .28),
     def: slot === 'weapon' ? Math.floor(base * .22) : base,
@@ -737,7 +742,7 @@ app.post('/api/rpg/gacha', async (req, res) => {
         if (state.summonPity.legendary >= GACHA_PITY.legendary - 1) forcedRarity = 'legendary';
         else if (state.summonPity.epic >= GACHA_PITY.epic - 1) forcedRarity = 'epic';
         else if (count === 10 && index === count - 1 && !rarePlus) forcedRarity = 'rare';
-        const gear = generateGachaGear(level, forcedRarity);
+        const gear = generateGachaGear(level, forcedRarity, character.classId);
         const isEpicPlus = ['epic', 'legendary'].includes(gear.rarity);
         if (gear.rarity === 'legendary') state.summonPity.legendary = 0;
         else state.summonPity.legendary = Math.min(GACHA_PITY.legendary - 1, state.summonPity.legendary + 1);
