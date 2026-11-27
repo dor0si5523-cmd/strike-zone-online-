@@ -61,6 +61,20 @@ const GEAR_NAMES = {
   boots: ['바람걸음 장화', '개척자의 발걸음', '그늘 추적자'],
   ring: ['호박빛 반지', '숲의 룬 반지', '변경 수호 반지']
 };
+const GACHA_EQUIPMENT_NAMES = {
+  armor: {
+    rare: ['청해 파수 흉갑', '파도날 판금갑', '푸른 비늘 갑주', '해풍 추적 흉갑', '빙하 방벽갑'], epic: ['자수정 룬 흉갑', '달무리 비전갑', '공허 수정 갑주', '별술사 흉갑', '심연 마도갑'], unique: ['태양왕 흉갑', '황금 사자 갑주', '용린 금갑', '백금 결투갑', '찬란한 수호갑'], legendary: ['숲수호자 흉갑', '생명의 잎갑', '가시나무 갑주', '초록바람 추적갑', '고대수호 판금갑'], mythic: ['백익 성휘갑', '월광 수정갑', '천공 진주갑', '은하 수호 흉갑', '순백 성좌갑'], immortal: ['홍염 파멸갑', '혈강철 흉갑', '용암 비늘갑', '진홍 망령갑', '종말의 흑갑']
+  },
+  helmet: {
+    rare: ['청람 순찰 투구', '파도날 경갑 투구', '푸른 비늘 면갑', '해풍 추적 투구', '빙하 방벽 투구'], epic: ['자수정 룬 투구', '달무리 비전 투구', '공허 수정 면갑', '별술사 투구', '심연 마도 투구'], unique: ['태양왕 투구', '황금 사자 투구', '용린 금면갑', '백금 결투 투구', '찬란한 수호 투구'], legendary: ['숲수호자 투구', '생명의 잎 투구', '가시나무 면갑', '초록바람 추적 투구', '고대수호 투구'], mythic: ['백익 성휘 투구', '월광 수정 투구', '천공 진주 면갑', '은하 수호 투구', '순백 성좌 투구'], immortal: ['홍염 파멸 투구', '혈강철 면갑', '용암 비늘 투구', '진홍 망령 투구', '종말의 흑투구']
+  },
+  boots: {
+    rare: ['청람 순찰 장화', '파도날 경갑화', '푸른 비늘 장화', '해풍 추적화', '빙하 방벽 장화'], epic: ['자수정 룬 장화', '달무리 비전화', '공허 수정 장화', '별술사 장화', '심연 마도화'], unique: ['태양왕 장화', '황금 사자 장화', '용린 금화', '백금 결투화', '찬란한 수호 장화'], legendary: ['숲수호자 장화', '생명의 잎 장화', '가시나무 장화', '초록바람 추적화', '고대수호 장화'], mythic: ['백익 성휘 장화', '월광 수정화', '천공 진주 장화', '은하 수호화', '순백 성좌 장화'], immortal: ['홍염 파멸 장화', '혈강철 장화', '용암 비늘화', '진홍 망령 장화', '종말의 흑화']
+  },
+  ring: {
+    rare: ['청람 사파이어 반지', '파도결 은반지', '푸른 비늘 인장반지', '해풍 추적자의 반지', '빙하 심장 반지'], epic: ['초승달 자수정 반지', '날개 룬 인장반지', '보랏빛 별가락지', '비전의 눈 반지', '공허 수정 고리'], unique: ['태양폭발 황수정 반지', '황금 매의 인장반지', '호박 프리즘 반지', '황금 발톱 토파즈 반지', '찬란한 태양석 반지'], legendary: ['생명의 에메랄드 반지', '비늘용 비취 반지', '가시숲 수호 고리', '고대수의 녹광 반지', '숲잎 군주의 반지'], mythic: ['성운 오팔 고리', '백익 다이아 반지', '월광 백금 반지', '천공의 서리 수정 반지', '진주 성좌 반지'], immortal: ['혈룡 송곳니 반지', '핏빛 루비 인장반지', '홍염 결정 반지', '진홍 악마의 눈 반지', '종말의 심장 루비 반지']
+  }
+};
 const testMembers = process.env.NODE_ENV === 'test' && process.env.SZ_TEST_LOCAL === '1' && !process.env.RENDER ? new Map() : null;
 
 app.disable('x-powered-by');
@@ -327,8 +341,7 @@ function characterLevel(xp) {
   while (remaining >= needed && level < 60) { remaining -= needed; level++; needed = 120 + (level - 1) * 45; }
   return level;
 }
-function generateGachaGear(level, forcedRarity = null, classId = 'warrior') {
-  const slot = 'weapon';
+function generateGachaGear(level, forcedRarity = null, classId = 'warrior', slot = 'weapon') {
   const tiers = [['rare', 8000], ['epic', 1500], ['unique', 400], ['legendary', 90], ['mythic', 9], ['immortal', 1]];
   const roll = crypto.randomInt(10000);
   let edge = 0, rarity = forcedRarity || 'rare';
@@ -340,10 +353,13 @@ function generateGachaGear(level, forcedRarity = null, classId = 'warrior') {
   }
   const multiplier = { rare: 1.8, epic: 2.5, unique: 3.1, legendary: 4.1, mythic: 5.3, immortal: 7 }[rarity];
   const prefix = { rare: '레어', epic: '에픽', unique: '유니크', legendary: '레전드리', mythic: '신화', immortal: '불멸' }[rarity];
-  const weaponPool = classId === 'archer' ? [] : CLASS_WEAPON_NAMES[classId] || GEAR_NAMES[slot];
-  const gearName = bow?.name || weaponPool[crypto.randomInt(weaponPool.length)];
+  const slotIndex = crypto.randomInt(5);
+  const weaponPool = classId === 'archer' ? [] : CLASS_WEAPON_NAMES[classId] || GEAR_NAMES.weapon;
+  const gearName = slot === 'weapon' ? (bow?.name || weaponPool[crypto.randomInt(weaponPool.length)]) : GACHA_EQUIPMENT_NAMES[slot][rarity][slotIndex];
   const base = Math.max(1, Math.round(level * multiplier * 2.5));
-  return { id: 'gacha_' + crypto.randomUUID(), visualKey: bow?.visualKey || `${slot}_${rarity}`, name: `${prefix} ${gearName}`, slot, rarity, atk: base, def: Math.floor(base * .22), enhance: 0 };
+  const visualKey = slot === 'weapon' ? (bow?.visualKey || `${slot}_${rarity}`) : `${slot}_${rarity}_${slotIndex + 1}`;
+  const isWeapon = slot === 'weapon', isRing = slot === 'ring';
+  return { id: 'gacha_' + crypto.randomUUID(), visualKey, name: `${prefix} ${gearName}`, slot, rarity, atk: isWeapon ? base : isRing ? Math.max(1, Math.floor(base * .4)) : 0, def: isWeapon ? Math.floor(base * .22) : Math.max(1, Math.floor(base * (isRing ? .55 : .8))), enhance: 0 };
 }
 
 app.get('/api/rpg/servers', async (req, res) => {
@@ -731,6 +747,8 @@ app.post('/api/rpg/gacha', async (req, res) => {
   if (!session.serverId || !session.characterId) return res.status(409).json({ error: '서버와 캐릭터를 선택해 주세요.' });
   const currency = req.body?.currency;
   const count = Number(req.body?.count);
+  const slot = req.body?.slot || 'weapon';
+  if (!['weapon', 'ring', 'armor', 'boots', 'helmet'].includes(slot)) return res.status(400).json({ error: '뽑을 장비 종류를 확인해 주세요.' });
   const price = GACHA_PRICES[currency]?.[count];
   if (!price) return res.status(400).json({ error: '뽑기 횟수와 재화를 확인해 주세요.' });
   try {
@@ -749,7 +767,7 @@ app.post('/api/rpg/gacha', async (req, res) => {
         if (state.summonPity.legendary >= GACHA_PITY.legendary - 1) forcedRarity = 'legendary';
         else if (state.summonPity.epic >= GACHA_PITY.epic - 1) forcedRarity = 'epic';
         else if (count === 10 && index === count - 1 && !rarePlus) forcedRarity = 'rare';
-        const gear = generateGachaGear(level, forcedRarity, character.classId);
+        const gear = generateGachaGear(level, forcedRarity, character.classId, slot);
         const isEpicPlus = GEAR_RARITY.indexOf(gear.rarity) >= GEAR_RARITY.indexOf('epic');
         if (['legendary', 'mythic', 'immortal'].includes(gear.rarity)) state.summonPity.legendary = 0;
         else state.summonPity.legendary = Math.min(GACHA_PITY.legendary - 1, state.summonPity.legendary + 1);
@@ -768,10 +786,10 @@ app.post('/api/rpg/gacha', async (req, res) => {
       if (state.items.length + newItems.length > 60) throw new Error('INVENTORY_FULL');
       state.items.push(...newItems);
       state.gold = Math.min(9999999, state.gold + goldRefund);
-      const history = { at: Date.now(), currency, count, cost: price, duplicateCount, goldRefund, items: results.map(item => ({ name: item.name, slot: item.slot, rarity: item.rarity, duplicate: item.duplicate === true, goldRefund: item.goldRefund || 0 })) };
+      const history = { at: Date.now(), currency, count, cost: price, slot, duplicateCount, goldRefund, items: results.map(item => ({ name: item.name, slot: item.slot, rarity: item.rarity, duplicate: item.duplicate === true, goldRefund: item.goldRefund || 0 })) };
       state.summonHistory = [history, ...state.summonHistory].slice(0, 10);
       character.state = { ...state, classId: character.classId };
-      outcome = { ok: true, currency, cost: price, count, items: results, duplicateCount, goldRefund, pity: state.summonPity, state: sanitizeRpg(character.state) };
+      outcome = { ok: true, currency, cost: price, count, slot, items: results, duplicateCount, goldRefund, pity: state.summonPity, state: sanitizeRpg(character.state) };
     });
     if (!account || !outcome) return res.status(503).json({ error: '뽑기 결과를 저장하지 못했습니다.' });
     res.json(outcome);
