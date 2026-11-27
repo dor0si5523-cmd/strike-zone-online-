@@ -18,3 +18,7 @@ The 30 archer weapon keys are registered in `public/equipment-visuals.js`: the f
 
 `public/equipment-visuals.js` registers 30 shared chest armor variants under `armor_<rarity>_<number>` keys. Each icon has a tier-colored frame for inventory display; the character renderer crops the central artwork when the armor is equipped. PNG icons are 256 × 256 with transparent padding.
 
+## Shared helmet appearance catalog
+
+`public/equipment-visuals.js` registers 30 shared helmet variants under `helmet_<rarity>_<number>` keys. Each icon keeps its colored tier frame in inventory and crops the central helmet art for the character head when equipped. PNG icons are 256 × 256 with transparent padding.
+

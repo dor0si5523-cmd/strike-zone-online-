@@ -41,7 +41,7 @@ function kstWeekKey(date = new Date()) {
 }
 function previousDayKey(dayKey) { const previous = new Date(`${dayKey}T00:00:00Z`); previous.setUTCDate(previous.getUTCDate() - 1); return previous.toISOString().slice(0, 10); }
 const RPG_UPGRADE_KEYS = ['attack', 'defense', 'maxHp', 'critChance', 'critDamage', 'goldGain', 'xpGain'];
-const DEFAULT_RPG = Object.freeze({ xp: 0, gold: 40, cash: 300, kills: 0, enhancements: { gold: Object.fromEntries(RPG_UPGRADE_KEYS.map(key => [key, 0])), stats: Object.fromEntries(RPG_UPGRADE_KEYS.map(key => [key, 0])) }, questStage: 0, questKills: 0, potions: 3, x: 1300, y: 1070, hp: 100, items: STARTER_ITEMS, equipment: { weapon: 'starter_blade', armor: 'starter_coat', boots: 'starter_boots', ring: 'starter_ring' }, autoSettings: { range: 'balanced', target: 'nearest', potionAt: 45, autoQuest: true }, summonPity: { epic: 0, legendary: 0 }, summonHistory: [], attendance: { lastDay: '', streak: 0 }, daily: { dayKey: kstDayKey(), kills: 0, attendanceClaimed: false, missionClaimed: false }, weekly: { weekKey: kstWeekKey(), kills: 0, missionClaimed: false }, zoneId: 'forest', classId: 'warrior' });
+const DEFAULT_RPG = Object.freeze({ xp: 0, gold: 40, cash: 300, kills: 0, enhancements: { gold: Object.fromEntries(RPG_UPGRADE_KEYS.map(key => [key, 0])), stats: Object.fromEntries(RPG_UPGRADE_KEYS.map(key => [key, 0])) }, questStage: 0, questKills: 0, potions: 3, x: 1300, y: 1070, hp: 100, items: STARTER_ITEMS, equipment: { weapon: 'starter_blade', armor: 'starter_coat', helmet: '', boots: 'starter_boots', ring: 'starter_ring' }, autoSettings: { range: 'balanced', target: 'nearest', potionAt: 45, autoQuest: true }, summonPity: { epic: 0, legendary: 0 }, summonHistory: [], attendance: { lastDay: '', streak: 0 }, daily: { dayKey: kstDayKey(), kills: 0, attendanceClaimed: false, missionClaimed: false }, weekly: { weekKey: kstWeekKey(), kills: 0, missionClaimed: false }, zoneId: 'forest', classId: 'warrior' });
 const GACHA_PRICES = { gold: { 1: 500, 10: 4500 }, cash: { 1: 100, 10: 900 } };
 const GACHA_PITY = { epic: 30, legendary: 100 };
 const DUPLICATE_GOLD = { common: 80, uncommon: 150, rare: 350, epic: 1200, unique: 2200, legendary: 4000, mythic: 8000, immortal: 16000 };
@@ -245,13 +245,13 @@ function sanitizeRpg(value = {}) {
       id: String(item?.id || `gear_${index}`).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48),
       visualKey: legacyWeaponVisualKey(item, value.classId, index).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48),
       name: legacyWeaponName(item, value.classId, index),
-      slot: ['weapon', 'armor', 'boots', 'ring'].includes(item?.slot) ? item.slot : 'weapon',
+      slot: ['weapon', 'armor', 'helmet', 'boots', 'ring'].includes(item?.slot) ? item.slot : 'weapon',
       rarity: GEAR_RARITY.includes(item?.rarity) ? item.rarity : 'common',
       atk: Math.floor(numberFrom(item?.atk, 0, 300, 0)),
       def: Math.floor(numberFrom(item?.def, 0, 300, 0)),
       enhance: Math.floor(numberFrom(item?.enhance, 0, 5, 0))
     })) : DEFAULT_RPG.items.map(item => ({ ...item })),
-    equipment: Object.fromEntries(['weapon', 'armor', 'boots', 'ring'].map(slot => {
+    equipment: Object.fromEntries(['weapon', 'armor', 'helmet', 'boots', 'ring'].map(slot => {
       const requested = String(value.equipment?.[slot] || '');
       const equipped = requested && Array.isArray(value.items) && value.items.some(item => item?.id === requested && item?.slot === slot) ? requested : '';
       const starter = !Array.isArray(value.items) ? DEFAULT_RPG.equipment[slot] : equipped;
@@ -276,7 +276,7 @@ function sanitizeRpg(value = {}) {
       goldRefund: Math.floor(numberFrom(entry?.goldRefund, 0, 9999999, 0)),
       items: Array.isArray(entry?.items) ? entry.items.slice(0, 10).map(item => ({
         name: String(item?.name || '장비').slice(0, 32),
-        slot: ['weapon', 'armor', 'boots', 'ring'].includes(item?.slot) ? item.slot : 'weapon',
+        slot: ['weapon', 'armor', 'helmet', 'boots', 'ring'].includes(item?.slot) ? item.slot : 'weapon',
         rarity: GEAR_RARITY.includes(item?.rarity) ? item.rarity : 'common',
         duplicate: item?.duplicate === true,
         goldRefund: Math.floor(numberFrom(item?.goldRefund, 0, 9999999, 0))

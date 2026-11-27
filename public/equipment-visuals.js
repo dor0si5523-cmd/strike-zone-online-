@@ -78,8 +78,27 @@ export const ARMOR_CATALOG = Object.freeze(Object.entries(armorNames).flatMap(([
 })));
 const armorCatalogVisuals = Object.fromEntries(ARMOR_CATALOG.map(({ key, ...visual }) => [key, visual]));
 
+const helmetNames = {
+  rare: ['청람 순찰 투구', '파도날 경갑 투구', '푸른 비늘 면갑', '해풍 추적 투구', '빙하 방벽 투구'],
+  epic: ['자수정 룬 투구', '달무리 비전 투구', '공허 수정 면갑', '별술사 투구', '심연 마도 투구'],
+  unique: ['태양왕 투구', '황금 사자 투구', '용린 금면갑', '백금 결투 투구', '찬란한 수호 투구'],
+  legendary: ['숲수호자 투구', '생명의 잎 투구', '가시나무 면갑', '초록바람 추적 투구', '고대수호 투구'],
+  mythic: ['백익 성휘 투구', '월광 수정 투구', '천공 진주 면갑', '은하 수호 투구', '순백 성좌 투구'],
+  immortal: ['홍염 파멸 투구', '혈강철 면갑', '용암 비늘 투구', '진홍 망령 투구', '종말의 흑투구']
+};
+export const HELMET_CATALOG = Object.freeze(Object.entries(helmetNames).flatMap(([rarity, names]) => names.map((name, index) => {
+  const key = `helmet_${rarity}_${index + 1}`;
+  const src = `/assets/equipment/helmets/${rarity}-${index + 1}.png`;
+  return Object.freeze({
+    key, name, rarity, rarityLabel: armorRarityLabels[rarity], frameColor: armorFrameColors[rarity], slot: 'helmet', src, iconSrc: src,
+    width: 24, height: 24, grip: { x: 0.5, y: 0.5 }, frames: { idle: { x: 24, y: 24, w: 208, h: 208 } }
+  });
+})));
+const helmetCatalogVisuals = Object.fromEntries(HELMET_CATALOG.map(({ key, ...visual }) => [key, visual]));
+
 export const EQUIPMENT_VISUALS = Object.freeze({
   ...Object.fromEntries(ARCHER_BOW_CATALOG.map(({ key, ...visual }) => [key, visual])),
   ...sharedArmorVisuals,
-  ...armorCatalogVisuals
+  ...armorCatalogVisuals,
+  ...helmetCatalogVisuals
 });
