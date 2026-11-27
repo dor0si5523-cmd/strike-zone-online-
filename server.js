@@ -10,6 +10,8 @@ const liveRaids = new Map();
 const port = Number(process.env.PORT) || 3000;
 const sessions = new Map();
 const attempts = new Map();
+const userAttempts = new Map();
+let lastSessionSweep = 0;
 const memberBase = 'https://api.github.com/repos/dor0si5523-cmd/strike-zone-members/contents/';
 const WORLD = { width: 2600, height: 1900 };
 const GAME_SERVERS = [
@@ -78,10 +80,13 @@ const GACHA_EQUIPMENT_NAMES = {
 const testMembers = process.env.NODE_ENV === 'test' && process.env.SZ_TEST_LOCAL === '1' && !process.env.RENDER ? new Map() : null;
 
 app.disable('x-powered-by');
+app.set('trust proxy', 1);
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'same-origin');
   res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
   res.setHeader('Cache-Control', 'no-store');
   next();
 });
@@ -93,13 +98,17 @@ app.get('/health', (_req, res) => res.json({ ok: true, version: '5.0', uptime: M
 
 function hash(password, salt) { return crypto.scryptSync(password, salt, 64).toString('hex'); }
 function issueSession(res, user) {
+  if (Date.now() - lastSessionSweep > 300000 || sessions.size > 10000) {
+    for (const [key, value] of sessions) if (value.expiresAt <= Date.now()) sessions.delete(key);
+    lastSessionSweep = Date.now();
+  }
   const token = crypto.randomBytes(32).toString('hex');
   sessions.set(token, { user, expiresAt: Date.now() + 86400000 });
   res.json({ token, name: user });
 }
 function identity(token) {
   const session = sessions.get(token);
-  if (!session || session.expiresAt <= Date.now()) return null;
+  if (!session || session.expiresAt <= Date.now()) { if (session) sessions.delete(token); return null; }
   return session;
 }
 function requestUser(req) { return identity(req.headers.authorization?.replace(/^Bearer /, ''))?.user || null; }
@@ -114,6 +123,17 @@ function rateLimit(req, res, next) {
   recent.push(now);
   attempts.set(key, recent);
   next();
+}
+function userRateLimit(maximum, windowMs = 60000) {
+  return (req, res, next) => {
+    if (testMembers) return next();
+    const now = Date.now(), user = requestSession(req)?.user || req.ip, key = `${req.path}:${user}`;
+    const recent = (userAttempts.get(key) || []).filter(time => now - time < windowMs);
+    if (recent.length >= maximum) return res.status(429).json({ error: '요청이 너무 많습니다. 잠시 후 다시 시도하세요.' });
+    recent.push(now); userAttempts.set(key, recent);
+    if (userAttempts.size > 10000) for (const [storedKey, values] of userAttempts) if (!values.some(time => now - time < windowMs)) userAttempts.delete(storedKey);
+    next();
+  };
 }
 async function memberRequest(user, method = 'GET', body) {
   const token = process.env.GITHUB_MEMBERS_TOKEN;
@@ -399,7 +419,7 @@ app.post('/api/rpg/server/select', async (req, res) => {
     res.status(503).json({ error: '캐릭터 목록을 불러오지 못했습니다.' });
   }
 });
-app.post('/api/rpg/characters', async (req, res) => {
+app.post('/api/rpg/characters', userRateLimit(8), async (req, res) => {
   const session = requestSession(req);
   if (!session) return res.sendStatus(401);
   if (!GAME_SERVERS.some(server => server.id === session.serverId)) return res.status(409).json({ error: '먼저 서버를 선택해 주세요.' });
@@ -433,7 +453,7 @@ app.post('/api/rpg/characters/select', async (req, res) => {
     res.status(503).json({ error: '캐릭터를 선택하지 못했습니다.' });
   }
 });
-app.post('/api/rpg/characters/delete', async (req, res) => {
+app.post('/api/rpg/characters/delete', userRateLimit(8), async (req, res) => {
   const session = requestSession(req);
   if (!session) return res.sendStatus(401);
   if (!GAME_SERVERS.some(server => server.id === session.serverId)) return res.status(409).json({ error: '먼저 서버를 선택해 주세요.' });
@@ -449,6 +469,7 @@ app.post('/api/rpg/characters/delete', async (req, res) => {
   }
 });
 
+app.post('/api/logout', (req, res) => { const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, ''); if (token) sessions.delete(token); res.sendStatus(204); });
 app.post('/api/signup', rateLimit, async (req, res) => {
   try {
     const user = String(req.body?.user || '').toLowerCase();
@@ -492,7 +513,7 @@ app.get('/api/rpg', async (req, res) => {
     res.status(503).json({ error: '캐릭터 저장소를 불러오지 못했습니다' });
   }
 });
-app.post('/api/rpg/save', async (req, res) => {
+app.post('/api/rpg/save', userRateLimit(90), async (req, res) => {
   const session = requestSession(req);
   if (!session) return res.sendStatus(401);
   if (!session.serverId || !session.characterId) return res.status(409).json({ error: '서버와 캐릭터를 선택해 주세요.' });
@@ -501,6 +522,7 @@ app.post('/api/rpg/save', async (req, res) => {
     const account = await editMember(session.user, record => {
       const character = serverCharacters(record, session.serverId).find(item => item.id === session.characterId);
       if (!character) throw new Error('선택한 캐릭터를 찾을 수 없습니다.');
+      if (!testMembers) { const current = sanitizeRpg(character.state || DEFAULT_RPG); rpg.cash = current.cash; rpg.items = current.items; rpg.equipment = current.equipment; rpg.enhancements = current.enhancements; rpg.summonPity = current.summonPity; rpg.summonHistory = current.summonHistory; rpg.attendance = current.attendance; rpg.daily.kills = Math.min(rpg.daily.kills, (current.daily.dayKey === rpg.daily.dayKey ? current.daily.kills : 0) + 10); rpg.weekly.kills = Math.min(rpg.weekly.kills, (current.weekly.weekKey === rpg.weekly.weekKey ? current.weekly.kills : 0) + 10); rpg.daily.attendanceClaimed = current.daily.attendanceClaimed || rpg.daily.attendanceClaimed; rpg.daily.missionClaimed = current.daily.missionClaimed || rpg.daily.missionClaimed; rpg.weekly.missionClaimed = current.weekly.missionClaimed || rpg.weekly.missionClaimed; }
       character.state = { ...rpg, classId: character.classId };
     });
     const character = serverCharacters(account, session.serverId).find(item => item.id === session.characterId);
@@ -509,7 +531,7 @@ app.post('/api/rpg/save', async (req, res) => {
     res.status(503).json({ error: '캐릭터 저장 실패 · 잠시 후 다시 시도하세요' });
   }
 });
-app.post('/api/rpg/zone/travel', async (req, res) => {
+app.post('/api/rpg/zone/travel', userRateLimit(12), async (req, res) => {
   const session = requestSession(req);
   if (!session) return res.sendStatus(401);
   if (!session.serverId || !session.characterId) return res.status(409).json({ error: '서버와 캐릭터를 선택해 주세요.' });
@@ -692,7 +714,7 @@ app.post('/api/rpg/social/clan/claim', rateLimit, async (req, res) => {
     res.status(503).json({ error: '클랜 보상을 지급하지 못했습니다.' });
   }
 });
-app.post('/api/rpg/activity/claim', async (req, res) => {
+app.post('/api/rpg/activity/claim', userRateLimit(12), async (req, res) => {
   const session = requestSession(req);
   if (!session) return res.sendStatus(401);
   if (!session.serverId || !session.characterId) return res.status(409).json({ error: '서버와 캐릭터를 선택해 주세요.' });
@@ -745,7 +767,56 @@ app.post('/api/rpg/activity/claim', async (req, res) => {
     res.status(503).json({ error: '보상을 저장하지 못했습니다.' });
   }
 });
-app.post('/api/rpg/gacha', async (req, res) => {
+app.post('/api/rpg/gear/action', userRateLimit(40), async (req, res) => {
+  const session = requestSession(req);
+  if (!session) return res.sendStatus(401);
+  if (!session.serverId || !session.characterId) return res.status(409).json({ error: '서버와 캐릭터를 선택해 주세요.' });
+  const action = String(req.body?.action || ''), itemId = String(req.body?.itemId || '');
+  if (!['equip', 'upgrade', 'salvage'].includes(action) || !/^[a-zA-Z0-9_-]{1,48}$/.test(itemId)) return res.status(400).json({ error: '장비 요청 정보를 확인해 주세요.' });
+  try {
+    let result;
+    const account = await editMember(session.user, record => {
+      const character = serverCharacters(record, session.serverId).find(item => item.id === session.characterId);
+      if (!character) throw new Error('CHARACTER_NOT_FOUND');
+      const state = sanitizeRpg(character.state || DEFAULT_RPG), item = state.items.find(entry => entry.id === itemId);
+      if (!item) throw new Error('ITEM_NOT_FOUND');
+      if (action === 'equip') state.equipment[item.slot] = item.id;
+      if (action === 'upgrade') { const cost = 25 * (item.enhance + 1); if (item.enhance >= 5) throw new Error('UPGRADE_MAX'); if (state.gold < cost) throw new Error('INSUFFICIENT_GOLD'); state.gold -= cost; item.enhance++; if (item.slot === 'weapon') item.atk += 3; else item.def += 2; }
+      if (action === 'salvage') { if (Object.values(state.equipment).includes(item.id)) throw new Error('ITEM_EQUIPPED'); state.items = state.items.filter(entry => entry.id !== item.id); state.gold = Math.min(9999999, state.gold + Math.max(4, Math.floor((item.atk + item.def + 1) * 3))); }
+      character.state = { ...state, classId: character.classId }; result = sanitizeRpg(character.state);
+    });
+    if (!account || !result) return res.status(503).json({ error: '장비를 저장하지 못했습니다.' });
+    res.json({ ok: true, state: result });
+  } catch (error) {
+    const status = ['ITEM_NOT_FOUND', 'CHARACTER_NOT_FOUND'].includes(error.message) ? 404 : ['INSUFFICIENT_GOLD', 'UPGRADE_MAX', 'ITEM_EQUIPPED'].includes(error.message) ? 409 : 503;
+    res.status(status).json({ error: ({ ITEM_NOT_FOUND: '장비를 찾을 수 없습니다.', CHARACTER_NOT_FOUND: '캐릭터를 찾을 수 없습니다.', INSUFFICIENT_GOLD: '골드가 부족합니다.', UPGRADE_MAX: '더 이상 강화할 수 없습니다.', ITEM_EQUIPPED: '장착 중인 장비는 분해할 수 없습니다.' })[error.message] || '장비를 저장하지 못했습니다.' });
+  }
+});
+app.post('/api/rpg/character/upgrade', userRateLimit(40), async (req, res) => {
+  const session = requestSession(req);
+  if (!session) return res.sendStatus(401);
+  if (!session.serverId || !session.characterId) return res.status(409).json({ error: '서버와 캐릭터를 선택해 주세요.' });
+  const mode = String(req.body?.mode || ''), key = String(req.body?.key || '');
+  if (!['gold', 'stats'].includes(mode) || !RPG_UPGRADE_KEYS.includes(key)) return res.status(400).json({ error: '강화 항목을 확인해 주세요.' });
+  try {
+    let result;
+    const account = await editMember(session.user, record => {
+      const character = serverCharacters(record, session.serverId).find(item => item.id === session.characterId);
+      if (!character) throw new Error('CHARACTER_NOT_FOUND');
+      const state = sanitizeRpg(character.state || DEFAULT_RPG), level = characterLevel(state.xp), current = state.enhancements[mode][key];
+      if (mode === 'gold') { const cost = 150 + current * 125 + current * current * 35; if (current >= 50) throw new Error('UPGRADE_MAX'); if (state.gold < cost) throw new Error('INSUFFICIENT_GOLD'); state.gold -= cost; }
+      else { const spent = Object.values(state.enhancements.stats).reduce((sum, value) => sum + value, 0); if (current >= 100) throw new Error('UPGRADE_MAX'); if ((level - 1) * 5 - spent < 1) throw new Error('NO_POINTS'); }
+      state.enhancements[mode][key]++; if (key === 'maxHp') state.hp = Math.min(100 + state.enhancements.gold.maxHp * 10 + state.enhancements.stats.maxHp * 5, state.hp + (mode === 'gold' ? 10 : 5));
+      character.state = { ...state, classId: character.classId }; result = sanitizeRpg(character.state);
+    });
+    if (!account || !result) return res.status(503).json({ error: '강화를 저장하지 못했습니다.' });
+    res.json({ ok: true, state: result });
+  } catch (error) {
+    const status = ['CHARACTER_NOT_FOUND'].includes(error.message) ? 404 : ['INSUFFICIENT_GOLD', 'UPGRADE_MAX', 'NO_POINTS'].includes(error.message) ? 409 : 503;
+    res.status(status).json({ error: ({ CHARACTER_NOT_FOUND: '캐릭터를 찾을 수 없습니다.', INSUFFICIENT_GOLD: '골드가 부족합니다.', UPGRADE_MAX: '이미 최대 강화입니다.', NO_POINTS: '사용 가능한 레벨업 포인트가 없습니다.' })[error.message] || '강화를 저장하지 못했습니다.' });
+  }
+});
+app.post('/api/rpg/gacha', userRateLimit(12), async (req, res) => {
   const session = requestSession(req);
   if (!session) return res.sendStatus(401);
   if (!session.serverId || !session.characterId) return res.status(409).json({ error: '서버와 캐릭터를 선택해 주세요.' });

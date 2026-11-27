@@ -257,3 +257,21 @@ test('side-scrolling battlefield keeps the hero grounded while auto-hunting',asy
   await expect.poll(async()=>{const state=await page.evaluate(()=>window.__rpgInspect());return Math.abs(state.x-before.x)>35&&Math.abs(state.y-state.groundY)<2;},{timeout:20000}).toBeTruthy();
   await expect.poll(async()=>page.evaluate(()=>window.__rpgInspect().attackEffects.some(effect=>effect.kind==='archer')),{timeout:30000}).toBeTruthy();
 });
+
+test('server security headers and logout revoke the bearer session',async({page})=>{
+  const response=await page.goto('/?dev=1');
+  const headers=await response.allHeaders();
+  expect(headers['x-powered-by']).toBeUndefined();
+  expect(headers['x-content-type-options']).toBe('nosniff');
+  expect(headers['content-security-policy']).toContain("frame-ancestors 'none'");
+  expect(headers['permissions-policy']).toContain('camera=()');
+  const user=await createAccount(page,'warrior');
+  const result=await page.evaluate(async()=>{const token=sessionStorage.getItem('ashenValeToken'),headers={Authorization:'Bearer '+token};const before=await fetch('/api/rpg',{headers});const logout=await fetch('/api/logout',{method:'POST',headers});const after=await fetch('/api/rpg',{headers});return{before:before.status,logout:logout.status,after:after.status}});
+  expect(result).toEqual({before:200,logout:204,after:401});
+});
+
+test('gear and character upgrades are processed by server APIs',async({page})=>{
+  await createAccount(page,'warrior');
+  const result=await page.evaluate(async()=>{const token=sessionStorage.getItem('ashenValeToken'),headers={'Content-Type':'application/json',Authorization:'Bearer '+token},state=window.__rpgInspect(),item={id:'server_test_blade',name:'서버 검증검',slot:'weapon',rarity:'rare',atk:10,def:0,enhance:0};const seeded=await fetch('/api/rpg/save',{method:'POST',headers,body:JSON.stringify({...state,xp:500,gold:5000,items:[...state.items,item]})});const equipped=await fetch('/api/rpg/gear/action',{method:'POST',headers,body:JSON.stringify({action:'equip',itemId:item.id})});const enhanced=await fetch('/api/rpg/character/upgrade',{method:'POST',headers,body:JSON.stringify({mode:'gold',key:'attack'})});const current=await enhanced.json();const salvaged=await fetch('/api/rpg/gear/action',{method:'POST',headers,body:JSON.stringify({action:'salvage',itemId:item.id})});return{seeded:seeded.status,equipped:equipped.status,equipment:(await equipped.json()).state.equipment.weapon,enhanced:enhanced.status,attackUpgrade:current.state.enhancements.gold.attack,salvageEquipped:salvaged.status}});
+  expect(result).toEqual({seeded:200,equipped:200,equipment:'server_test_blade',enhanced:200,attackUpgrade:1,salvageEquipped:409});
+});
