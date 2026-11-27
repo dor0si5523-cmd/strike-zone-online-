@@ -243,3 +243,17 @@ test('gold and free cash gacha save gear and guarantee rare gear on ten pulls',a
   expect(state.cash).toBe(100);
   expect(state.items).toHaveLength(4+10-tenPull.duplicateCount+(singlePull.duplicateCount?0:1));
 });
+
+test('side-scrolling battlefield keeps the hero grounded while auto-hunting',async({page})=>{
+  await page.goto('/?dev=1');
+  await page.locator('#character-name').fill('횡스크롤검증');
+  await page.locator('[data-class="archer"]').click();
+  await page.locator('#create-submit').click();
+  await expect(page.locator('#game')).toBeVisible();
+  const before=await page.evaluate(()=>window.__rpgInspect());
+  await page.screenshot({path:'test-results/side-scroll-map.png'});
+  expect(before.viewMode).toBe('side-scroll');
+  expect(Math.abs(before.y-before.groundY)).toBeLessThan(2);
+  await expect.poll(async()=>{const state=await page.evaluate(()=>window.__rpgInspect());return Math.abs(state.x-before.x)>35&&Math.abs(state.y-state.groundY)<2;},{timeout:20000}).toBeTruthy();
+  await expect.poll(async()=>page.evaluate(()=>window.__rpgInspect().attackEffects.some(effect=>effect.kind==='archer')),{timeout:30000}).toBeTruthy();
+});
