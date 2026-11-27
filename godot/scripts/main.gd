@@ -122,8 +122,22 @@ func _show_auth() -> void:
 	password_input.secret = true
 	_button("회원가입" if signup_mode else "로그인", _submit_auth)
 	_button("로그인으로 돌아가기" if signup_mode else "새 계정 만들기", _toggle_signup)
+	if not signup_mode:
+		_button("개발자 계정으로 로그인", _developer_login)
+		var note := _label("개발자 모드 · 계정 없이 바로 시작 · 이 기기에만 저장")
+		note.add_theme_font_size_override("font_size", 12)
+		note.add_theme_color_override("font_color", Color("b7c2b6"))
 	status_label = _label("")
 	status_label.add_theme_color_override("font_color", Color("e58b73"))
+
+func _developer_login() -> void:
+	if busy: return
+	var session: Dictionary = GameApi.begin_developer_session()
+	active_character = session.character
+	game_state = session.state
+	game_state["classId"] = str(active_character.get("classId", "warrior"))
+	last_saved_kills = int(game_state.get("kills", 0))
+	_enter_battle()
 
 func _toggle_signup() -> void:
 	signup_mode = not signup_mode
@@ -334,7 +348,7 @@ func _enter_battle() -> void:
 	exit_button.pressed.connect(_leave_battle)
 	menu.add_child(exit_button)
 	var bottom := Label.new()
-	bottom.text = "자동 전투 중 · 화면을 세로로 돌려 플레이"
+	bottom.text = "개발자 테스트 · 이 기기에만 저장" if GameApi.developer_mode else "자동 전투 중 · 화면을 세로로 돌려 플레이"
 	battle_notice_label = bottom
 	bottom.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	bottom.offset_left = 10
@@ -638,6 +652,19 @@ func _zone_name(zone_id: String) -> String:
 	return {"forest":"초록숲", "ashlands":"잿빛 고원", "moonharbor":"달빛 항구"}.get(zone_id, "초록숲")
 
 func _travel_to_zone(zone_id: String) -> void:
+	if GameApi.developer_mode:
+		var required_level: int = int({"forest":1, "ashlands":8, "moonharbor":18}.get(zone_id, 999))
+		if _level() < required_level:
+			_panel_label("이 지역은 레벨 %s부터 입장할 수 있습니다." % required_level)
+			return
+		game_state["zoneId"] = zone_id
+		game_state["x"] = 1300
+		game_state["y"] = 1070
+		game_state["hp"] = maxi(65, int(game_state.get("hp", 100)))
+		battle.configure(game_state, active_character)
+		GameApi.save_developer_state(game_state, active_character)
+		_render_zone_panel()
+		return
 	var response: Dictionary = await GameApi.call_api("/api/rpg/zone/travel", HTTPClient.METHOD_POST, {"zoneId": zone_id})
 	if not response.ok:
 		_panel_label(response.error)
@@ -750,6 +777,10 @@ func _leave_battle() -> void:
 	battle_hud = null
 	battle_footer = null
 	battle_notice_label = null
+	if GameApi.developer_mode:
+		GameApi.developer_mode = false
+		_show_auth()
+		return
 	await _show_characters()
 
 func _on_state_changed(value: Dictionary) -> void:
@@ -774,8 +805,12 @@ func _process(delta: float) -> void:
 
 func _save_progress() -> void:
 	if not battle or busy: return
-	busy = true
 	game_state = battle.export_state()
+	if GameApi.developer_mode:
+		GameApi.save_developer_state(game_state, active_character)
+		last_saved_kills = int(game_state.get("kills", 0))
+		return
+	busy = true
 	var response: Dictionary = await GameApi.call_api("/api/rpg/save", HTTPClient.METHOD_POST, game_state)
 	busy = false
 	if not response.ok:
@@ -796,6 +831,10 @@ func _logout() -> void:
 		battle_hud = null
 		battle_footer = null
 		current_overlay = null
-	await GameApi.logout()
+	if GameApi.developer_mode:
+		GameApi.developer_mode = false
+	else:
+		await GameApi.logout()
 	_show_auth()
+
 
