@@ -3,6 +3,8 @@ playwright-report/
 test-results/
 godot/.godot/
 godot/.import/
+godot/**/*.import
+godot/**/*.uid
 godot/android/build/
 godot/export/
 godot/build/
