@@ -20,6 +20,8 @@ var save_timer: float = 0.0
 var last_saved_kills := 0
 var busy := false
 var battle_gold: Label
+var battle_cash: Label
+var battle_power: Label
 var battle_hp: Label
 var battle_identity: Label
 var battle_notice_label: Label
@@ -30,6 +32,9 @@ var gacha_slot := "weapon"
 var battle_hud: Control
 var battle_footer: Control
 var developer_has_existing := false
+var community_opted_in := false
+var community_clan: Dictionary = {}
+var community_weekly_claimed := false
 
 func _ready() -> void:
 	_build_shell()
@@ -369,6 +374,16 @@ func _enter_battle() -> void:
 	battle_hp = Label.new()
 	battle_hp.text = "HP %s" % str(game_state.get("hp", 100))
 	bar.add_child(battle_hp)
+	var resource_bar := HBoxContainer.new()
+	resource_bar.add_theme_constant_override("separation", 14)
+	hud.add_child(resource_bar)
+	battle_power = Label.new()
+	battle_power.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	battle_power.text = "전투력 %s" % _combat_stats().power
+	resource_bar.add_child(battle_power)
+	battle_cash = Label.new()
+	battle_cash.text = "✧ %s" % str(game_state.get("cash", 0))
+	resource_bar.add_child(battle_cash)
 	var nav_scroll := ScrollContainer.new()
 	nav_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
 	nav_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -377,19 +392,13 @@ func _enter_battle() -> void:
 	var menu := HBoxContainer.new()
 	menu.add_theme_constant_override("separation", 5)
 	nav_scroll.add_child(menu)
-	for title in ["캐릭터", "장비", "스킬", "지역", "퀘스트", "상점", "메뉴"]:
+	for title in ["캐릭터", "장비", "스킬", "던전", "퀘스트", "상점&뽑기", "이벤트", "우편함", "메뉴"]:
 		var b := Button.new()
 		b.text = title
-		b.custom_minimum_size = Vector2(70, 42)
-		b.add_theme_font_size_override("font_size", 13)
+		b.custom_minimum_size = Vector2(76 if title == "상점&뽑기" else 50, 42)
+		b.add_theme_font_size_override("font_size", 10)
 		b.pressed.connect(_open_game_panel.bind(title))
 		menu.add_child(b)
-	var exit_button := Button.new()
-	exit_button.text = "나가기"
-	exit_button.custom_minimum_size = Vector2(70, 42)
-	exit_button.add_theme_font_size_override("font_size", 13)
-	exit_button.pressed.connect(_leave_battle)
-	menu.add_child(exit_button)
 	var bottom := Label.new()
 	bottom.text = "개발자 테스트 · 이 기기에만 저장" if GameApi.developer_mode else "자동 전투 중 · 화면을 세로로 돌려 플레이"
 	battle_notice_label = bottom
@@ -475,14 +484,23 @@ func _panel_button(text: String, action: Callable, disabled: bool = false) -> Bu
 	overlay_content.add_child(button)
 	return button
 
+func _panel_line_edit(placeholder: String) -> LineEdit:
+	var field := LineEdit.new()
+	field.placeholder_text = placeholder
+	field.custom_minimum_size.y = 42
+	overlay_content.add_child(field)
+	return field
+
 func _open_game_panel(title: String) -> void:
 	match title:
 		"캐릭터": _render_character_panel()
 		"장비": _render_gear_panel()
 		"스킬": _render_skill_panel()
-		"지역": _render_zone_panel()
+		"던전": _render_zone_panel()
 		"퀘스트": _render_quest_panel()
-		"상점": _render_shop_panel()
+		"상점&뽑기": _render_shop_panel()
+		"이벤트": _render_event_panel()
+		"우편함": _render_mailbox_panel()
 		"메뉴": _render_menu_panel()
 
 func _render_character_panel() -> void:
@@ -517,6 +535,20 @@ func _set_enhancement_mode(mode: String) -> void:
 	_render_character_panel()
 
 func _upgrade_stat(key: String) -> void:
+	if GameApi.developer_mode:
+		var upgrades: Dictionary = game_state.get("enhancements", {}).get(enhancement_mode, {})
+		var level := int(upgrades.get(key, 0))
+		if enhancement_mode == "gold":
+			var cost := 150 + level * 125 + level * level * 35
+			if level >= 50 or int(game_state.get("gold", 0)) < cost: return
+			game_state["gold"] = int(game_state.get("gold", 0)) - cost
+		else:
+			if level >= 100 or _available_points() < 1: return
+		upgrades[key] = level + 1
+		if key == "maxHp": game_state["hp"] = mini(_combat_stats().max_hp, int(game_state.get("hp", 100)) + (10 if enhancement_mode == "gold" else 5))
+		_apply_game_state()
+		_render_character_panel()
+		return
 	var response: Dictionary = await GameApi.call_api("/api/rpg/character/upgrade", HTTPClient.METHOD_POST, {"mode": enhancement_mode, "key": key})
 	if response.ok:
 		game_state = response.data.get("state", game_state)
@@ -654,6 +686,23 @@ func _equipment_icon_path(item: Dictionary) -> String:
 	return ""
 
 func _gear_action(action: String, item_id: String) -> void:
+	if GameApi.developer_mode:
+		for item in game_state.get("items", []):
+			if str(item.get("id", "")) != item_id: continue
+			if action == "equip": game_state["equipment"][str(item.get("slot", "weapon"))] = item_id
+			elif action == "upgrade":
+				var cost := 25 * (int(item.get("enhance", 0)) + 1)
+				if int(item.get("enhance", 0)) >= 5 or int(game_state.get("gold", 0)) < cost: _panel_label("골드가 부족하거나 최대 강화입니다."); return
+				game_state["gold"] = int(game_state.get("gold", 0)) - cost
+				item["enhance"] = int(item.get("enhance", 0)) + 1
+				if item.get("slot") == "weapon": item["atk"] = int(item.get("atk", 0)) + 3
+				else: item["def"] = int(item.get("def", 0)) + 2
+			elif action == "salvage":
+				if game_state.get("equipment", {}).values().has(item_id): _panel_label("장착 중인 장비는 분해할 수 없습니다."); return
+				game_state["gold"] = mini(9999999, int(game_state.get("gold", 0)) + maxi(4, (int(item.get("atk", 0)) + int(item.get("def", 0)) + 1) * 3))
+				game_state["items"] = game_state.items.filter(func(entry): return str(entry.get("id", "")) != item_id)
+				break
+		_apply_game_state(); _render_gear_panel(); return
 	var response: Dictionary = await GameApi.call_api("/api/rpg/gear/action", HTTPClient.METHOD_POST, {"action": action, "itemId": item_id})
 	if response.ok:
 		game_state = response.data.get("state", game_state)
@@ -672,11 +721,7 @@ func _confirm_salvage(item_id: String) -> void:
 
 func _render_skill_panel() -> void:
 	_make_overlay("스킬")
-	var class_id := str(game_state.get("classId", "warrior"))
-	_panel_label("%s 직업 스킬 · 전투 중 자동으로 사용" % CLASS_NAMES.get(class_id, "모험가"))
-	var skills := {"warrior":["강철 베기", "회전 참격", "수호 태세"], "archer":["관통 화살", "다중 사격", "회피 사격", "덫 설치"], "mage":["비전 탄환", "서리 폭발", "마력 보호막"], "gunner":["속사", "산탄 폭발", "화약 회피"]}
-	for name in skills.get(class_id, []): _panel_label("✦ " + name)
-	_panel_label("스킬 자동 사용과 스킬별 설정 UI를 다음 포팅 단계에서 연결합니다.")
+	_panel_label("스킬 시스템 작업 중입니다. 웹게임과 동일하게 스킬 목록과 자동 사용은 아직 제공되지 않습니다.")
 
 func _render_zone_panel() -> void:
 	_make_overlay("지역 이동")
@@ -722,13 +767,48 @@ func _render_quest_panel() -> void:
 	_make_overlay("퀘스트·보상")
 	var daily: Dictionary = game_state.get("daily", {})
 	var weekly: Dictionary = game_state.get("weekly", {})
+	var today := Time.get_date_string_from_system()
+	if str(daily.get("dayKey", "")) != today:
+		daily = {"dayKey":today, "kills":0, "attendanceClaimed":false, "missionClaimed":false}
+		game_state["daily"] = daily
 	_panel_label("지역 의뢰 진행: %s · %s 처치\n오늘 사냥: %s / 20\n이번 주 사냥: %s / 100" % ["완료" if int(game_state.get("questStage", 0)) >= 2 else "진행 중", game_state.get("questKills", 0), daily.get("kills", 0), weekly.get("kills", 0)])
 	_panel_button("출석 보상 받기 · 골드 100 / 캐시 20", _claim_activity.bind("attendance"), bool(daily.get("attendanceClaimed", false)))
 	_panel_button("일일 사냥 보상 · 골드 600 / 캐시 25", _claim_activity.bind("daily"), bool(daily.get("missionClaimed", false)) or int(daily.get("kills", 0)) < 20)
 	_panel_button("주간 사냥 보상 · 골드 2,500 / 캐시 125", _claim_activity.bind("weekly"), bool(weekly.get("missionClaimed", false)) or int(weekly.get("kills", 0)) < 100)
-	_panel_label("지역 의뢰 보상 수령 UI는 별도 서버 보상 검증 경로를 추가한 뒤 연결합니다.")
+	var stage := int(game_state.get("questStage", 0))
+	var need := 3 if stage == 0 else 5
+	var kills := int(game_state.get("questKills", 0))
+	_panel_label("지역 의뢰 · %s\n진행 %s / %s · 보상 XP %s · 골드 %s · 캐시 %s" % ["숲길 정찰" if stage == 0 else "고블린 야영지" if stage == 1 else "완료", mini(kills, need), need, 120 if stage == 0 else 300, 80 if stage == 0 else 180, 100 if stage == 0 else 180])
+	_panel_button("지역 의뢰 보상 받기", _claim_region_quest, stage >= 2 or kills < need)
+	_panel_label("업적")
+	for achievement in [{"id":"kills_10", "name":"첫 사냥", "require":10, "gold":100, "cash":0}, {"id":"kills_100", "name":"숙련된 사냥꾼", "require":100, "gold":600, "cash":30}, {"id":"boss_1", "name":"거대한 적", "require":1, "gold":300, "cash":25, "boss":true}, {"id":"level_10", "name":"모험가의 성장", "require":10, "gold":500, "cash":20, "level":true}]:
+		var claimed: Array = game_state.get("growth", {}).get("achievementClaims", [])
+		var progress := _level() if achievement.get("level", false) else int(game_state.get("growth", {}).get("bossKills", 0)) if achievement.get("boss", false) else int(game_state.get("kills", 0))
+		var ready := progress >= int(achievement.require) and not claimed.has(achievement.id)
+		_panel_button("%s · 골드 %s / 캐시 %s · %s" % [achievement.name, achievement.gold, achievement.cash, "받기" if ready else "수령 완료" if claimed.has(achievement.id) else "진행 %s/%s" % [progress, achievement.require]], _claim_achievement.bind(achievement), not ready)
 
 func _claim_activity(kind: String) -> void:
+	if GameApi.developer_mode:
+		var daily: Dictionary = game_state.get("daily", {})
+		var weekly: Dictionary = game_state.get("weekly", {})
+		var attendance: Dictionary = game_state.get("attendance", {})
+		var today := Time.get_date_string_from_system()
+		if kind == "attendance":
+			if daily.get("attendanceClaimed", false): return
+			var streak := 1
+			if str(attendance.get("lastDay", "")) != "":
+				var today_time := Time.get_unix_time_from_datetime_string(today + "T00:00:00")
+				var previous := Time.get_date_string_from_unix_time(today_time - 86400)
+				if str(attendance.get("lastDay", "")) == previous: streak = 1 if int(attendance.get("streak", 0)) >= 7 else int(attendance.get("streak", 0)) + 1
+			attendance["lastDay"] = today; attendance["streak"] = streak
+			daily["attendanceClaimed"] = true; game_state["gold"] = int(game_state.get("gold", 0)) + (700 if streak == 7 else 100); game_state["cash"] = int(game_state.get("cash", 0)) + (100 if streak == 7 else 20); game_state["attendance"] = attendance
+		elif kind == "daily":
+			if daily.get("missionClaimed", false) or int(daily.get("kills", 0)) < 20: return
+			daily["missionClaimed"] = true; game_state["gold"] = int(game_state.get("gold", 0)) + 600; game_state["cash"] = int(game_state.get("cash", 0)) + 25
+		else:
+			if weekly.get("missionClaimed", false) or int(weekly.get("kills", 0)) < 100: return
+			weekly["missionClaimed"] = true; game_state["gold"] = int(game_state.get("gold", 0)) + 2500; game_state["cash"] = int(game_state.get("cash", 0)) + 125
+		game_state["daily"] = daily; game_state["weekly"] = weekly; _apply_game_state(); _render_quest_panel(); return
 	var response: Dictionary = await GameApi.call_api("/api/rpg/activity/claim", HTTPClient.METHOD_POST, {"type": kind})
 	if response.ok:
 		game_state = response.data.get("state", game_state)
@@ -737,6 +817,61 @@ func _claim_activity(kind: String) -> void:
 		_render_quest_panel()
 	else:
 		_panel_label(response.error)
+
+func _claim_region_quest() -> void:
+	if GameApi.developer_mode:
+		var stage := int(game_state.get("questStage", 0))
+		var required := 3 if stage == 0 else 5
+		if stage >= 2 or int(game_state.get("questKills", 0)) < required: return
+		game_state["questStage"] = stage + 1; game_state["questKills"] = 0
+		game_state["xp"] = int(game_state.get("xp", 0)) + (120 if stage == 0 else 300)
+		game_state["gold"] = int(game_state.get("gold", 0)) + (80 if stage == 0 else 180)
+		game_state["cash"] = int(game_state.get("cash", 0)) + (100 if stage == 0 else 180)
+		_apply_game_state(); _render_quest_panel(); return
+	var response: Dictionary = await GameApi.call_api("/api/rpg/growth/claim", HTTPClient.METHOD_POST, {"type":"quest"})
+	if response.ok:
+		game_state = response.data.get("state", game_state); _apply_game_state(); _render_quest_panel()
+	else: _panel_label(response.error)
+
+func _claim_achievement(achievement: Dictionary) -> void:
+	var id := str(achievement.get("id", ""))
+	if GameApi.developer_mode:
+		var claims: Array = game_state.get("growth", {}).get("achievementClaims", [])
+		if claims.has(id): return
+		claims.append(id); game_state["growth"]["achievementClaims"] = claims
+		game_state["gold"] = int(game_state.get("gold", 0)) + int(achievement.gold)
+		game_state["cash"] = int(game_state.get("cash", 0)) + int(achievement.cash)
+		_apply_game_state(); _render_quest_panel(); return
+	var response: Dictionary = await GameApi.call_api("/api/rpg/growth/claim", HTTPClient.METHOD_POST, {"type":"achievement", "id":id})
+	if response.ok:
+		game_state = response.data.get("state", game_state); _apply_game_state(); _render_quest_panel()
+	else: _panel_label(response.error)
+
+func _render_mailbox_panel() -> void:
+	_make_overlay("우편함")
+	_panel_label("모험 시작 지원품 · 골드 300 · 캐시 30")
+	var claims: Array = game_state.get("growth", {}).get("mailClaims", [])
+	_panel_button("받기" if not claims.has("welcome_v1") else "수령 완료", _claim_mail.bind("welcome_v1"), claims.has("welcome_v1"))
+
+func _claim_mail(id: String) -> void:
+	if GameApi.developer_mode:
+		var claims: Array = game_state.get("growth", {}).get("mailClaims", [])
+		if claims.has(id): return
+		claims.append(id); game_state["growth"]["mailClaims"] = claims
+		game_state["gold"] = int(game_state.get("gold", 0)) + 300; game_state["cash"] = int(game_state.get("cash", 0)) + 30
+		_apply_game_state(); _render_mailbox_panel(); return
+	var response: Dictionary = await GameApi.call_api("/api/rpg/growth/claim", HTTPClient.METHOD_POST, {"type":"mail", "id":id})
+	if response.ok:
+		game_state = response.data.get("state", game_state); _apply_game_state(); _render_mailbox_panel()
+	else: _panel_label(response.error)
+
+func _render_event_panel() -> void:
+	_make_overlay("이벤트")
+	if GameApi.developer_mode:
+		_panel_label("협동 레이드는 웹게임에서만 실시간 이벤트 서버에 연결됩니다. 계정 없는 개발자 모드에는 임시 레이드가 없습니다.")
+	else:
+		_panel_label("웹게임의 실시간 협동 레이드와 같은 이벤트 서버를 연결하는 Godot 클라이언트는 아직 이 앱에 포함되지 않았습니다.")
+		_panel_label("현재 앱에서는 레이드 생성·참가·보스 전투 보상이 동작하지 않습니다.")
 
 func _render_shop_panel() -> void:
 	_make_overlay("상점 & 장비 뽑기")
@@ -753,10 +888,56 @@ func _render_shop_panel() -> void:
 		_panel_button("1회 · %s %s" % [title, "500" if currency == "gold" else "100"], _summon.bind(currency, 1))
 		_panel_button("10회 · %s %s" % [title, "4,500" if currency == "gold" else "900"], _summon.bind(currency, 10))
 	var history: Array = game_state.get("summonHistory", [])
+	var pity: Dictionary = game_state.get("summonPity", {})
+	_panel_label("천장 진행 · 에픽 %s / 30 · 레전드리 %s / 100" % [pity.get("epic", 0), pity.get("legendary", 0)])
 	if not history.is_empty():
 		_panel_label("최근 뽑기: %s · %s회" % [history[0].get("slot", "장비"), history[0].get("count", 1)])
 
 func _summon(currency: String, count: int) -> void:
+	if GameApi.developer_mode:
+		var cost := (500 if count == 1 else 4500) if currency == "gold" else (100 if count == 1 else 900)
+		if int(game_state.get(currency, 0)) < cost: _panel_label("재화가 부족합니다."); return
+		var items: Array = game_state.get("items", [])
+		if items.size() + count > 60: _panel_label("가방 공간이 부족합니다."); return
+		game_state[currency] = int(game_state.get(currency, 0)) - cost
+		var tiers := [{"id":"rare", "weight":8000, "label":"레어", "mult":1.8}, {"id":"epic", "weight":1500, "label":"에픽", "mult":2.5}, {"id":"unique", "weight":400, "label":"유니크", "mult":3.1}, {"id":"legendary", "weight":90, "label":"레전드리", "mult":4.1}, {"id":"mythic", "weight":9, "label":"신화", "mult":5.3}, {"id":"immortal", "weight":1, "label":"불멸", "mult":7.0}]
+		var obtained := PackedStringArray()
+		var pity: Dictionary = game_state.get("summonPity", {"epic":0, "legendary":0})
+		var rare_plus := false
+		var duplicate_gold := {"rare":350, "epic":1200, "unique":2200, "legendary":4000, "mythic":8000, "immortal":16000}
+		for index in range(count):
+			var roll := randi_range(0, 9999); var edge := 0; var tier: Dictionary = tiers[0]
+			for candidate in tiers:
+				edge += int(candidate.weight)
+				if roll < edge: tier = candidate; break
+			if int(pity.get("legendary", 0)) >= 99: tier = tiers[3]
+			elif int(pity.get("epic", 0)) >= 29: tier = tiers[1]
+			elif count == 10 and index == count - 1 and not rare_plus: tier = tiers[0]
+			var tier_index := tiers.find(tier)
+			if tier_index >= 3: pity["legendary"] = 0
+			else: pity["legendary"] = mini(99, int(pity.get("legendary", 0)) + 1)
+			if tier_index >= 1: pity["epic"] = 0
+			else: pity["epic"] = mini(29, int(pity.get("epic", 0)) + 1)
+			rare_plus = true
+			var number := randi_range(1, 5); var rarity: String = tier.id
+			var slot_names := {"weapon":"무기", "armor":"갑옷", "helmet":"투구", "boots":"신발", "ring":"반지"}
+			var visual := ("bow_%s_%s" % [rarity, number]) if gacha_slot == "weapon" and game_state.get("classId") == "archer" else "%s_%s_%s" % [gacha_slot, rarity, number]
+			var base := maxi(1, roundi(float(_level()) * float(tier.mult) * 2.5))
+			var gear_name := "%s %s %s" % [tier.label, slot_names[gacha_slot], number]
+			var item := {"id":"gacha_%s_%s" % [Time.get_ticks_msec(), index], "visualKey":visual, "name":gear_name, "slot":gacha_slot, "rarity":rarity, "atk":base if gacha_slot == "weapon" else maxi(1, floori(base * 0.4)) if gacha_slot == "ring" else 0, "def":floori(base * 0.22) if gacha_slot == "weapon" else maxi(1, floori(base * (0.55 if gacha_slot == "ring" else 0.8))), "enhance":0}
+			var duplicate := false
+			for owned in items:
+				if str(owned.get("name", "")) == gear_name and str(owned.get("slot", "")) == gacha_slot: duplicate = true; break
+			if duplicate:
+				item["duplicate"] = true
+				item["goldRefund"] = int(duplicate_gold.get(rarity, 80))
+				game_state["gold"] = mini(9999999, int(game_state.get("gold", 0)) + int(item.goldRefund))
+			else: items.append(item)
+			obtained.append(str(item.name) + (" · 중복 골드 +%s" % item.goldRefund if duplicate else ""))
+		game_state["items"] = items
+		game_state["summonPity"] = pity
+		game_state["summonHistory"] = [{"slot":gacha_slot, "count":count}] + game_state.get("summonHistory", []).slice(0, 9)
+		_apply_game_state(); _render_shop_panel(); _panel_label("획득 결과\n" + "\n".join(obtained)); return
 	var response: Dictionary = await GameApi.call_api("/api/rpg/gacha", HTTPClient.METHOD_POST, {"currency": currency, "count": count, "slot": gacha_slot})
 	if response.ok:
 		game_state = response.data.get("state", game_state)
@@ -773,10 +954,18 @@ func _summon(currency: String, count: int) -> void:
 func _render_menu_panel() -> void:
 	_make_overlay("메뉴")
 	_panel_button("공지사항", _show_announcement)
-	_panel_button("커뮤니티 순위", _show_rankings)
+	_panel_button("커뮤니티 · 순위", _show_rankings)
 	_panel_button("몬스터 도감", _show_bestiary)
 	_panel_button("저장하기", _save_progress)
+	_panel_button("나가기", _leave_battle)
 	_panel_button("로그아웃", _confirm_logout)
+
+func _apply_game_state() -> void:
+	if battle:
+		battle.apply_state(game_state)
+		_on_state_changed(game_state)
+	if GameApi.developer_mode:
+		GameApi.save_developer_state(game_state, active_character)
 
 func _show_announcement() -> void:
 	var response: Dictionary = await GameApi.call_api("/api/rpg/announcement")
@@ -790,19 +979,75 @@ func _show_announcement() -> void:
 		_panel_label(response.error)
 
 func _show_rankings() -> void:
+	if GameApi.developer_mode:
+		_panel_label("온라인 랭킹·클랜은 계정 모드에서 이용할 수 있습니다. 개발자 모드 진행도는 공개되지 않습니다.")
+		_panel_button("지원대 전투 " + ("끄기" if bool(game_state.get("partyEnabled", true)) else "켜기"), _toggle_party)
+		return
 	var response: Dictionary = await GameApi.call_api("/api/rpg/social/rankings")
 	if not response.ok:
 		_panel_label(response.error)
 		return
 	var entries: Array = response.data.get("rankings", [])
+	community_opted_in = bool(response.data.get("mine", {}).get("optedIn", false))
 	for index in range(entries.size()):
 		var entry: Dictionary = entries[index]
 		_panel_label("%s위 · %s · Lv.%s · 점수 %s" % [index + 1, entry.get("alias", "모험가"), entry.get("level", 1), entry.get("score", 0)])
 	if entries.is_empty(): _panel_label("공개 순위 기록이 아직 없습니다.")
+	_panel_label("공개 랭킹은 캐릭터 별칭·직업·레벨·점수만 표시합니다.")
+	_panel_button("공개 랭킹 " + ("참여 중 · 해제" if community_opted_in else "참여하기"), _toggle_app_ranking)
+	var clan_response: Dictionary = await GameApi.call_api("/api/rpg/social/clan")
+	if not clan_response.ok:
+		_panel_label(clan_response.error)
+		return
+	community_clan = clan_response.data.get("clan", {}) if clan_response.data.get("clan", null) is Dictionary else {}
+	community_weekly_claimed = bool(clan_response.data.get("weeklyClaimed", false))
+	if community_clan.is_empty():
+		_panel_label("클랜에 가입해 협동 사냥에 참여할 수 있습니다.")
+		var clan_name := _panel_line_edit("새 클랜 이름 · 2~16자")
+		_panel_button("클랜 만들기", _clan_action.bind("create", clan_name, null))
+		var invite := _panel_line_edit("클랜 초대 코드")
+		_panel_button("클랜 가입", _clan_action.bind("join", null, invite))
+	else:
+		_panel_label("%s · %s명\n초대 코드 %s · 주간 사냥 %s / %s" % [community_clan.get("name", "클랜"), community_clan.get("memberCount", 1), community_clan.get("inviteCode", ""), community_clan.get("weeklyKills", 0), community_clan.get("weeklyGoal", 100)])
+		_panel_button("주간 클랜 보상 받기 · 골드 500 / 캐시 20", _claim_clan_reward, community_weekly_claimed or int(community_clan.get("weeklyKills", 0)) < 100)
+		_panel_button("클랜 탈퇴", _clan_action.bind("leave", null, null))
+	_panel_button("지원대 전투 " + ("끄기" if bool(game_state.get("partyEnabled", true)) else "켜기"), _toggle_party)
+
+func _toggle_app_ranking() -> void:
+	var opt_in := not community_opted_in
+	if opt_in:
+		var dialog := ConfirmationDialog.new()
+		dialog.dialog_text = "캐릭터 별칭, 직업, 레벨, 전투 점수가 공개 랭킹에 표시됩니다. 참여할까요?"
+		dialog.confirmed.connect(_set_ranking_opt_in.bind(true))
+		add_child(dialog); dialog.popup_centered(Vector2i(480, 220)); return
+	await _set_ranking_opt_in(false)
+
+func _set_ranking_opt_in(opt_in: bool) -> void:
+	var response: Dictionary = await GameApi.call_api("/api/rpg/social/ranking", HTTPClient.METHOD_POST, {"optIn":opt_in, "alias":str(active_character.get("name", "모험가"))})
+	if response.ok: community_opted_in = opt_in; _render_menu_panel(); await _show_rankings()
+	else: _panel_label(response.error)
+
+func _clan_action(action: String, name_field: LineEdit = null, invite_field: LineEdit = null) -> void:
+	var payload := {"action":action, "alias":str(active_character.get("name", "모험가"))}
+	if action == "create" and name_field: payload["name"] = name_field.text.strip_edges()
+	if action == "join" and invite_field: payload["code"] = invite_field.text.strip_edges().to_upper()
+	var response: Dictionary = await GameApi.call_api("/api/rpg/social/clan", HTTPClient.METHOD_POST, payload)
+	if response.ok: _render_menu_panel(); await _show_rankings()
+	else: _panel_label(response.error)
+
+func _claim_clan_reward() -> void:
+	var response: Dictionary = await GameApi.call_api("/api/rpg/social/clan/claim", HTTPClient.METHOD_POST, {})
+	if response.ok:
+		game_state = response.data.get("state", game_state); _apply_game_state(); _render_menu_panel(); await _show_rankings()
+	else: _panel_label(response.error)
+
+func _toggle_party() -> void:
+	game_state["partyEnabled"] = not bool(game_state.get("partyEnabled", true))
+	_apply_game_state(); _render_menu_panel(); await _show_rankings()
 
 func _show_bestiary() -> void:
-	for kind in ["slime", "forest_wolf", "ash_goblin", "ash_wolf", "raider", "reef_wraith"]:
-		_panel_label("%s · 처치 %s" % [{"slime":"숲 슬라임", "forest_wolf":"숲 늑대", "ash_goblin":"잿빛 고블린", "ash_wolf":"잿불 늑대", "raider":"항구 약탈자", "reef_wraith":"산호 망령"}[kind], game_state.get("bestiary", {}).get(kind, 0)])
+	for kind in ["slime", "forest_wolf", "ash_goblin", "ash_wolf", "raider", "reef_wraith", "forest_guardian", "ash_golem", "sea_leviathan"]:
+		_panel_label("%s · 처치 %s" % [{"slime":"숲 슬라임", "forest_wolf":"숲 늑대", "ash_goblin":"잿빛 고블린", "ash_wolf":"잿불 늑대", "raider":"항구 약탈자", "reef_wraith":"산호 망령", "forest_guardian":"숲의 수호자", "ash_golem":"잿빛 거신", "sea_leviathan":"심해의 레비아탄"}[kind], game_state.get("bestiary", {}).get(kind, 0)])
 
 func _confirm_logout() -> void:
 	var dialog := ConfirmationDialog.new()
@@ -829,6 +1074,8 @@ func _leave_battle() -> void:
 func _on_state_changed(value: Dictionary) -> void:
 	game_state = value
 	if battle_gold: battle_gold.text = "◈ %s" % str(game_state.get("gold", 0))
+	if battle_cash: battle_cash.text = "✧ %s" % str(game_state.get("cash", 0))
+	if battle_power: battle_power.text = "전투력 %s" % _combat_stats().power
 	if battle_hp: battle_hp.text = "HP %s" % str(game_state.get("hp", 100))
 	if battle_identity:
 		battle_identity.text = "%s · Lv.%s" % [active_character.get("name", "모험가"), _level()]

@@ -767,6 +767,53 @@ app.post('/api/rpg/activity/claim', userRateLimit(12), async (req, res) => {
     res.status(503).json({ error: '보상을 저장하지 못했습니다.' });
   }
 });
+app.post('/api/rpg/growth/claim', userRateLimit(20), async (req, res) => {
+  const session = requestSession(req);
+  if (!session) return res.sendStatus(401);
+  if (!session.serverId || !session.characterId) return res.status(409).json({ error: '서버와 캐릭터를 선택해 주세요.' });
+  const type = String(req.body?.type || ''), id = String(req.body?.id || '');
+  if (!['quest', 'achievement', 'mail'].includes(type)) return res.status(400).json({ error: '보상 종류를 확인해 주세요.' });
+  try {
+    let result;
+    const account = await editMember(session.user, record => {
+      const character = serverCharacters(record, session.serverId).find(item => item.id === session.characterId);
+      if (!character) throw new Error('CHARACTER_NOT_FOUND');
+      const state = sanitizeRpg(character.state || DEFAULT_RPG);
+      let reward = { xp: 0, gold: 0, cash: 0 };
+      if (type === 'quest') {
+        const stage = state.questStage, required = stage === 0 ? 3 : stage === 1 ? 5 : 0;
+        if (!required || state.questKills < required) throw new Error('QUEST_NOT_READY');
+        reward = stage === 0 ? { xp: 120, gold: 80, cash: 100 } : { xp: 300, gold: 180, cash: 180 };
+        state.questStage++; state.questKills = 0;
+      } else if (type === 'achievement') {
+        const definitions = {
+          kills_10: { ready: state.kills >= 10, gold: 100, cash: 0 },
+          kills_100: { ready: state.kills >= 100, gold: 600, cash: 30 },
+          boss_1: { ready: state.growth.bossKills >= 1, gold: 300, cash: 25 },
+          level_10: { ready: characterLevel(state.xp) >= 10, gold: 500, cash: 20 }
+        };
+        const achievement = definitions[id];
+        if (!achievement) throw new Error('CLAIM_NOT_FOUND');
+        if (state.growth.achievementClaims.includes(id)) throw new Error('CLAIMED');
+        if (!achievement.ready) throw new Error('NOT_READY');
+        state.growth.achievementClaims.push(id); reward = { xp: 0, gold: achievement.gold, cash: achievement.cash };
+      } else {
+        if (id !== 'welcome_v1') throw new Error('CLAIM_NOT_FOUND');
+        if (state.growth.mailClaims.includes(id)) throw new Error('CLAIMED');
+        state.growth.mailClaims.push(id); reward = { xp: 0, gold: 300, cash: 30 };
+      }
+      state.xp = Math.min(999999, state.xp + reward.xp);
+      state.gold = Math.min(9999999, state.gold + reward.gold);
+      state.cash = Math.min(99999999, state.cash + reward.cash);
+      character.state = { ...state, classId: character.classId }; result = { reward, state: sanitizeRpg(character.state) };
+    });
+    if (!account || !result) return res.status(503).json({ error: '보상을 저장하지 못했습니다.' });
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    const status = error.message === 'CHARACTER_NOT_FOUND' ? 404 : ['QUEST_NOT_READY', 'CLAIMED', 'NOT_READY'].includes(error.message) ? 409 : error.message === 'CLAIM_NOT_FOUND' ? 404 : 503;
+    res.status(status).json({ error: ({ CHARACTER_NOT_FOUND: '캐릭터를 찾을 수 없습니다.', QUEST_NOT_READY: '지역 의뢰 조건을 달성하지 않았습니다.', CLAIMED: '이미 수령한 보상입니다.', NOT_READY: '업적 조건을 달성하지 않았습니다.', CLAIM_NOT_FOUND: '보상을 찾을 수 없습니다.' })[error.message] || '보상을 저장하지 못했습니다.' });
+  }
+});
 app.post('/api/rpg/gear/action', userRateLimit(40), async (req, res) => {
   const session = requestSession(req);
   if (!session) return res.sendStatus(401);

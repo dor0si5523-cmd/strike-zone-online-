@@ -185,6 +185,13 @@ func _apply_attack(index: int) -> void:
 		var bestiary: Dictionary = state.get("bestiary", {})
 		bestiary[str(mob["kind"])] = int(bestiary.get(str(mob["kind"]), 0)) + 1
 		state["bestiary"] = bestiary
+		if bool(data.get("boss", false)):
+			var growth: Dictionary = state.get("growth", {})
+			growth["bossKills"] = int(growth.get("bossKills", 0)) + 1
+			state["growth"] = growth
+			var records: Dictionary = state.get("records", {})
+			records["bestBosses"] = maxi(int(records.get("bestBosses", 0)), int(growth["bossKills"]))
+			state["records"] = records
 		var today := _today_kst_key()
 		var daily: Dictionary = state.get("daily", {})
 		if str(daily.get("dayKey", "")) != today:
