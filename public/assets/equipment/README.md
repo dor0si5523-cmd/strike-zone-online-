@@ -10,6 +10,6 @@ Place transparent PNGs in this folder and register each one in `public/equipment
 The renderer keeps a procedural fallback until a matching visual is registered, so missing artwork never appears as a detached world object.
 
 
-## Archer bow set
+## Archer bow catalog
 
-The five equipped bow looks use `bow_ashwood`, `bow_moonsteel`, `bow_ember`, `bow_thornvine`, and `bow_starfall`. Archer weapon summons select one of these stable appearance keys; older archer weapons are assigned a stable bow appearance when loaded.
+The 30 archer weapon keys are registered in `public/equipment-visuals.js`: the five existing bows are the Rare set, and 25 individually generated framed icons fill the Epic, Unique, Legendary, Mythic, and Immortal sets. Gacha results save the selected appearance key, and that same key drives the inventory icon and equipped weapon image. Icon frame colors are blue, purple, yellow, green, white, and red by tier. Optimized WebP artwork is in `bows/`.
