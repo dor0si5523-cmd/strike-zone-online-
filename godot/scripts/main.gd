@@ -1246,7 +1246,3 @@ func _logout() -> void:
 	else:
 		await GameApi.logout()
 	_show_auth()
-
-
-
-
