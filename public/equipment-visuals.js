@@ -34,4 +34,27 @@ export const ARCHER_BOW_CATALOG = Object.freeze(Object.entries(tiers).flatMap(([
   const src = rarity === 'rare' ? file : `/assets/equipment/bows/${file}`;
   return Object.freeze({ key, name, rarity, rarityLabel: labels[rarity], src, iconSrc: src, slot: 'weapon', width: rarity === 'rare' ? 42 : 54, height: rarity === 'rare' ? 68 : 54, grip: rarity === 'rare' ? { x: 0.44, y: 0.5 } : { x: 0.5, y: 0.5 }, animation: { swingRadians: 0.035 } });
 })));
-export const EQUIPMENT_VISUALS = Object.freeze(Object.fromEntries(ARCHER_BOW_CATALOG.map(({ key, ...visual }) => [key, visual])));
+const armorAppearance = {
+  common: { color: '#9b7952', accent: '#d2b078', variant: 0 },
+  uncommon: { color: '#557b65', accent: '#a5c795', variant: 1 },
+  rare: { color: '#456f91', accent: '#9bd0e8', variant: 2 },
+  epic: { color: '#76538f', accent: '#d4a8ed', variant: 0 },
+  unique: { color: '#9a762f', accent: '#f1d479', variant: 1 },
+  legendary: { color: '#477747', accent: '#a6dc8e', variant: 2 },
+  mythic: { color: '#9b9a91', accent: '#fff5d5', variant: 0 },
+  immortal: { color: '#943d3b', accent: '#f19986', variant: 1 }
+};
+const sharedArmorVisuals = Object.fromEntries(
+  ['armor', 'boots', 'ring'].flatMap(slot => Object.entries(armorAppearance).map(([rarity, appearance]) => [
+    `${slot}_${rarity}`,
+    Object.freeze({ slot, appearance: Object.freeze({ ...appearance }) })
+  ]))
+);
+sharedArmorVisuals.starter_coat = Object.freeze({ slot: 'armor', appearance: Object.freeze({ ...armorAppearance.common, variant: 2 }) });
+sharedArmorVisuals.starter_boots = Object.freeze({ slot: 'boots', appearance: Object.freeze({ color: '#554637', accent: '#d0ad72', variant: 1 }) });
+sharedArmorVisuals.starter_ring = Object.freeze({ slot: 'ring', appearance: Object.freeze({ color: '#805a27', accent: '#edc45b', variant: 2 }) });
+
+export const EQUIPMENT_VISUALS = Object.freeze({
+  ...Object.fromEntries(ARCHER_BOW_CATALOG.map(({ key, ...visual }) => [key, visual])),
+  ...sharedArmorVisuals
+});
