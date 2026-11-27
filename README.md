@@ -15,6 +15,10 @@ npm start
 
 Open http://localhost:3000. The default development flow starts at character creation and stores that character in the current browser. Append `?account=1` to use the existing login, realm, and character-slot flow.
 
+## Native Android client (in progress)
+
+The Godot project lives in `godot/`. It connects to the same account, server, character, and RPG save API as the browser game; it does not create a separate account database. Open `godot/project.godot` with Godot 4.7.2 or newer. Android export requires the Android SDK and OpenJDK 17; see the [Godot Android export guide](https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_android.html).
+
 Automated browser tests use an isolated in-memory account store and never write to the production member repository:
 
 ```sh
