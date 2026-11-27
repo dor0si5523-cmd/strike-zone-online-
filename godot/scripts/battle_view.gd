@@ -396,5 +396,3 @@ func _draw_minimap(view: Vector2) -> void:
 		var rel: Vector2 = (mob["position"] - player) / WORLD_SIZE * 72.0
 		draw_circle(box.position + Vector2(43, 48) + rel, 2, Color("#e18b70"))
 	draw_circle(box.position + Vector2(43, 48), 3, Color("#e7c87b"))
-
-
