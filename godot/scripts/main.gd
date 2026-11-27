@@ -29,6 +29,7 @@ var enhancement_mode := "gold"
 var gacha_slot := "weapon"
 var battle_hud: Control
 var battle_footer: Control
+var developer_has_existing := false
 
 func _ready() -> void:
 	_build_shell()
@@ -136,8 +137,9 @@ func _developer_login() -> void:
 	active_character = session.character
 	game_state = session.state
 	game_state["classId"] = str(active_character.get("classId", "warrior"))
+	developer_has_existing = bool(session.get("has_existing", false))
 	last_saved_kills = int(game_state.get("kills", 0))
-	_enter_battle()
+	_show_create_character()
 
 func _toggle_signup() -> void:
 	signup_mode = not signup_mode
@@ -239,30 +241,71 @@ func _show_characters() -> void:
 
 func _show_create_character() -> void:
 	_clear_page()
-	_heading("캐릭터 생성", "직업은 생성 후 변경할 수 없습니다.")
+	_heading("캐릭터 생성", "직업은 생성 후 변경할 수 없습니다." if not GameApi.developer_mode else "개발자 테스트 캐릭터를 만들고 모험을 시작하세요.")
 	name_input = _line_edit("캐릭터 이름 · 2~12자")
 	name_input.max_length = 12
+	if GameApi.developer_mode:
+		name_input.text = str(active_character.get("name", "개발자"))
 	class_picker = OptionButton.new()
 	for class_id in ["warrior", "archer", "mage", "gunner"]:
 		class_picker.add_item(CLASS_NAMES[class_id])
 		class_picker.set_item_metadata(class_picker.item_count - 1, class_id)
+		if GameApi.developer_mode and class_id == str(active_character.get("classId", "warrior")):
+			class_picker.select(class_picker.item_count - 1)
 	class_picker.custom_minimum_size.y = 48
 	page.add_child(class_picker)
-	_button("생성", _create_character)
-	_button("돌아가기", _show_characters)
+	_button("캐릭터 생성 후 시작", _create_character)
+	if GameApi.developer_mode:
+		if developer_has_existing:
+			_button("저장된 개발자 캐릭터로 계속", _continue_developer_character)
+		_button("로그인 화면으로 돌아가기", _cancel_developer_login)
+	else:
+		_button("돌아가기", _show_characters)
 	status_label = _label("")
 
 func _create_character() -> void:
 	if busy: return
+	var name := name_input.text.strip_edges()
+	if name.length() < 2 or name.length() > 12:
+		_set_status("캐릭터 이름은 2~12자로 입력해 주세요.")
+		return
 	var class_id: String = str(class_picker.get_item_metadata(class_picker.selected))
+	if GameApi.developer_mode:
+		if developer_has_existing and (name != str(active_character.get("name", "")) or class_id != str(active_character.get("classId", "warrior"))):
+			var dialog := ConfirmationDialog.new()
+			dialog.dialog_text = "새 개발자 캐릭터를 만들면 이 기기에 저장된 기존 개발자 진행도가 교체됩니다. 계속할까요?"
+			dialog.confirmed.connect(_create_developer_character.bind(name, class_id))
+			add_child(dialog)
+			dialog.popup_centered(Vector2i(500, 220))
+			return
+		_create_developer_character(name, class_id)
+		return
 	busy = true
-	var response: Dictionary = await GameApi.call_api("/api/rpg/characters", HTTPClient.METHOD_POST, {"name": name_input.text.strip_edges(), "classId": class_id})
+	var response: Dictionary = await GameApi.call_api("/api/rpg/characters", HTTPClient.METHOD_POST, {"name": name, "classId": class_id})
 	busy = false
 	if not response.ok:
 		_set_status(response.error)
 		return
 	characters = response.data.get("characters", [])
 	await _show_characters()
+
+func _create_developer_character(name: String, class_id: String) -> void:
+	active_character = {"id":"local_dev_character", "name":name, "classId":class_id, "level":1, "xp":0, "kills":0}
+	game_state = GameApi.DEV_STATE.duplicate(true)
+	game_state["classId"] = class_id
+	developer_has_existing = true
+	last_saved_kills = 0
+	GameApi.save_developer_state(game_state, active_character)
+	_enter_battle()
+
+func _continue_developer_character() -> void:
+	game_state["classId"] = str(active_character.get("classId", "warrior"))
+	_enter_battle()
+
+func _cancel_developer_login() -> void:
+	GameApi.developer_mode = false
+	developer_has_existing = false
+	_show_auth()
 
 func _confirm_delete(character_id: String) -> void:
 	var dialog := ConfirmationDialog.new()
@@ -836,5 +879,6 @@ func _logout() -> void:
 	else:
 		await GameApi.logout()
 	_show_auth()
+
 
 

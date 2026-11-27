@@ -44,9 +44,10 @@ func begin_developer_session() -> Dictionary:
 	developer_mode = true
 	var cfg := ConfigFile.new()
 	var loaded := cfg.load(SAVE_PATH) == OK
+	var has_existing := loaded and cfg.has_section_key("developer", "character") and cfg.has_section_key("developer", "state")
 	var character: Dictionary = cfg.get_value("developer", "character", DEV_CHARACTER.duplicate(true)) if loaded else DEV_CHARACTER.duplicate(true)
 	var state: Dictionary = cfg.get_value("developer", "state", DEV_STATE.duplicate(true)) if loaded else DEV_STATE.duplicate(true)
-	return {"character":character.duplicate(true), "state":state.duplicate(true)}
+	return {"character":character.duplicate(true), "state":state.duplicate(true), "has_existing":has_existing}
 
 func save_developer_state(state: Dictionary, character: Dictionary) -> void:
 	var cfg := ConfigFile.new()
@@ -114,4 +115,5 @@ func logout() -> void:
 	character_id = ""
 	account_name = ""
 	_persist()
+
 
