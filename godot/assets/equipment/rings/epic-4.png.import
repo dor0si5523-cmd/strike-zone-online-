@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cvpda12sohcdv"
-path="res://.godot/imported/ring-mythic-5.png-27b82e63f6d1936bbb090d283d2098bb.ctex"
+uid="uid://cv5ibufvvv74w"
+path="res://.godot/imported/epic-4.png-c1c465dea854fe0be1f808526d5c8437.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/equipment/fallback/ring-mythic-5.png"
-dest_files=["res://.godot/imported/ring-mythic-5.png-27b82e63f6d1936bbb090d283d2098bb.ctex"]
+source_file="res://assets/equipment/rings/epic-4.png"
+dest_files=["res://.godot/imported/epic-4.png-c1c465dea854fe0be1f808526d5c8437.ctex"]
 
 [params]
 

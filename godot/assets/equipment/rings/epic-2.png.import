@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cifh85tpyo8ov"
-path="res://.godot/imported/armor-mythic-5.png-56a7092a816e192bc836fbce35ecd6b9.ctex"
+uid="uid://2e8wki68nip"
+path="res://.godot/imported/epic-2.png-96e511047927874f290c07067fe0b93a.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/equipment/fallback/armor-mythic-5.png"
-dest_files=["res://.godot/imported/armor-mythic-5.png-56a7092a816e192bc836fbce35ecd6b9.ctex"]
+source_file="res://assets/equipment/rings/epic-2.png"
+dest_files=["res://.godot/imported/epic-2.png-96e511047927874f290c07067fe0b93a.ctex"]
 
 [params]
 

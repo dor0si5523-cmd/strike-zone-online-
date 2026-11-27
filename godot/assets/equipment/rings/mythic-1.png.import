@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://b24x2nv8v4sne"
-path="res://.godot/imported/ring-mythic-2.png-589af56398e3c25054f9201c002850d2.ctex"
+uid="uid://bpma4xc8r3a5x"
+path="res://.godot/imported/mythic-1.png-da0c157d86731d2829ab48e46bbd388d.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/equipment/fallback/ring-mythic-2.png"
-dest_files=["res://.godot/imported/ring-mythic-2.png-589af56398e3c25054f9201c002850d2.ctex"]
+source_file="res://assets/equipment/rings/mythic-1.png"
+dest_files=["res://.godot/imported/mythic-1.png-da0c157d86731d2829ab48e46bbd388d.ctex"]
 
 [params]
 

@@ -746,10 +746,6 @@ func _render_gear_panel() -> void:
 
 func _equipment_icon_path(item: Dictionary) -> String:
 	var key := str(item.get("visualKey", ""))
-	# The matching website files for these ten variants are damaged PNGs.
-	# Use app-local replacement artwork while preserving the web originals.
-	var repaired_art := {"armor_mythic_5":"armor-mythic-5.png", "boots_mythic_5":"boots-mythic-5.png", "helmet_legendary_5":"helmet-legendary-5.png", "ring_epic_1":"ring-epic-1.png", "ring_epic_2":"ring-epic-2.png", "ring_epic_4":"ring-epic-4.png", "ring_mythic_1":"ring-mythic-1.png", "ring_mythic_2":"ring-mythic-2.png", "ring_mythic_5":"ring-mythic-5.png", "ring_unique_1":"ring-unique-1.png"}
-	if repaired_art.has(key): return "res://assets/equipment/fallback/" + str(repaired_art[key])
 	match key:
 		"starter_blade":
 			match str(game_state.get("classId", "warrior")):
@@ -1279,6 +1275,7 @@ func _logout() -> void:
 	else:
 		await GameApi.logout()
 	_show_auth()
+
 
 
 

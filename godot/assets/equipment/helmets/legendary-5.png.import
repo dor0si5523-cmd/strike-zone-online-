@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dq08al6p26mgg"
-path="res://.godot/imported/boots-mythic-5.png-319419c87621b6645faa2c3d4e6759f4.ctex"
+uid="uid://b4ja2nsaoahhe"
+path="res://.godot/imported/legendary-5.png-45e2dfe05ada1e3c9eb5bf6d0d802233.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/equipment/fallback/boots-mythic-5.png"
-dest_files=["res://.godot/imported/boots-mythic-5.png-319419c87621b6645faa2c3d4e6759f4.ctex"]
+source_file="res://assets/equipment/helmets/legendary-5.png"
+dest_files=["res://.godot/imported/legendary-5.png-45e2dfe05ada1e3c9eb5bf6d0d802233.ctex"]
 
 [params]
 
