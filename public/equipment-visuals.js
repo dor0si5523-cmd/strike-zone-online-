@@ -114,10 +114,29 @@ export const BOOTS_CATALOG = Object.freeze(Object.entries(bootsNames).flatMap(([
 })));
 const bootsCatalogVisuals = Object.fromEntries(BOOTS_CATALOG.map(({ key, ...visual }) => [key, visual]));
 
+const ringNames = {
+  rare: ['청람 사파이어 반지', '파도결 은반지', '푸른 비늘 인장반지', '해풍 추적자의 반지', '빙하 심장 반지'],
+  epic: ['초승달 자수정 반지', '날개 룬 인장반지', '보랏빛 별가락지', '비전의 눈 반지', '공허 수정 고리'],
+  unique: ['태양폭발 황수정 반지', '황금 매의 인장반지', '호박 프리즘 반지', '황금 발톱 토파즈 반지', '찬란한 태양석 반지'],
+  legendary: ['생명의 에메랄드 반지', '비늘용 비취 반지', '가시숲 수호 고리', '고대수의 녹광 반지', '숲잎 군주의 반지'],
+  mythic: ['성운 오팔 고리', '백익 다이아 반지', '월광 백금 반지', '천공의 서리 수정 반지', '진주 성좌 반지'],
+  immortal: ['혈룡 송곳니 반지', '핏빛 루비 인장반지', '홍염 결정 반지', '진홍 악마의 눈 반지', '종말의 심장 루비 반지']
+};
+export const RING_CATALOG = Object.freeze(Object.entries(ringNames).flatMap(([rarity, names]) => names.map((name, index) => {
+  const key = `ring_${rarity}_${index + 1}`;
+  const src = `/assets/equipment/rings/${rarity}-${index + 1}.png`;
+  return Object.freeze({
+    key, name, rarity, rarityLabel: armorRarityLabels[rarity], frameColor: armorFrameColors[rarity], slot: 'ring', src, iconSrc: src,
+    width: 16, height: 16, grip: { x: 0.5, y: 0.5 }, frames: { idle: { x: 24, y: 24, w: 208, h: 208 } }
+  });
+})));
+const ringCatalogVisuals = Object.fromEntries(RING_CATALOG.map(({ key, ...visual }) => [key, visual]));
+
 export const EQUIPMENT_VISUALS = Object.freeze({
   ...Object.fromEntries(ARCHER_BOW_CATALOG.map(({ key, ...visual }) => [key, visual])),
   ...sharedArmorVisuals,
   ...armorCatalogVisuals,
   ...helmetCatalogVisuals,
-  ...bootsCatalogVisuals
+  ...bootsCatalogVisuals,
+  ...ringCatalogVisuals
 });

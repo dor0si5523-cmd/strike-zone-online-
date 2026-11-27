@@ -26,3 +26,7 @@ The 30 archer weapon keys are registered in `public/equipment-visuals.js`: the f
 
 `public/equipment-visuals.js` registers 30 shared boot variants under `boots_<rarity>_<number>` keys. Inventory uses the complete framed pair icon; the character renderer crops and attaches the pair art at the feet. PNG icons are 256 × 256 with transparent padding.
 
+## Shared ring appearance catalog
+
+`public/equipment-visuals.js` registers 30 shared ring variants under `ring_<rarity>_<number>` keys. Each icon includes its colored rarity frame in inventory; the character renderer crops the center art and attaches the ring to the weapon hand. PNG icons are 256 × 256 with transparent padding.
+
