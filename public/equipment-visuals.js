@@ -32,7 +32,13 @@ const tiers = {
 const labels = { rare: '레어', epic: '에픽', unique: '유니크', legendary: '레전드리', mythic: '신화', immortal: '불멸' };
 export const ARCHER_BOW_CATALOG = Object.freeze(Object.entries(tiers).flatMap(([rarity, entries]) => entries.map(([key, name, file]) => {
   const src = rarity === 'rare' ? file : `/assets/equipment/bows/${file}`;
-  return Object.freeze({ key, name, rarity, rarityLabel: labels[rarity], src, iconSrc: src, slot: 'weapon', width: rarity === 'rare' ? 42 : 54, height: rarity === 'rare' ? 68 : 54, grip: rarity === 'rare' ? { x: 0.44, y: 0.5 } : { x: 0.5, y: 0.5 }, animation: { swingRadians: 0.035 } });
+  return Object.freeze({
+    key, name, rarity, rarityLabel: labels[rarity], src, iconSrc: src, slot: 'weapon',
+    width: rarity === 'rare' ? 42 : 46, height: rarity === 'rare' ? 68 : 38,
+    grip: rarity === 'rare' ? { x: 0.44, y: 0.5 } : { x: 0.5, y: 0.5 },
+    animation: { swingRadians: 0.035 },
+    ...(rarity === 'rare' ? {} : { rotationOffset: Math.PI / 2, frames: { idle: { x: 46, y: 46, w: 420, h: 420 } }, removeBackdrop: true })
+  });
 })));
 const armorAppearance = {
   common: { color: '#9b7952', accent: '#d2b078', variant: 0 },
