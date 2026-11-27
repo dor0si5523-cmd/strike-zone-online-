@@ -746,6 +746,10 @@ func _render_gear_panel() -> void:
 
 func _equipment_icon_path(item: Dictionary) -> String:
 	var key := str(item.get("visualKey", ""))
+	# These files in public/assets/equipment are not decodable PNGs. Keep the
+	# inventory fallback glyph until valid artwork replaces the source files.
+	var damaged_art := ["armor_mythic_5", "boots_mythic_5", "helmet_legendary_5", "ring_epic_1", "ring_epic_2", "ring_epic_4", "ring_mythic_1", "ring_mythic_2", "ring_mythic_5", "ring_unique_1"]
+	if damaged_art.has(key): return ""
 	if key.begins_with("bow_"):
 		var names := {"bow_ashwood":"ashwood-bow.png", "bow_moonsteel":"moonsteel-bow.png", "bow_ember":"ember-bow.png", "bow_thornvine":"thornvine-bow.png", "bow_starfall":"starfall-bow.png"}
 		var rare_bows := ["ashwood-bow.png", "moonsteel-bow.png", "ember-bow.png", "thornvine-bow.png", "starfall-bow.png"]
