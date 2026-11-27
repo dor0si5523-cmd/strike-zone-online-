@@ -283,5 +283,21 @@ test('portrait battlefield HUD fits without landscape rotation',async({browser})
   await expect(page.locator('#game')).toBeVisible();await expect(page.locator('#battle-target-panel')).toBeVisible({timeout:12000});
   const layout=await page.evaluate(()=>{const top=document.querySelector('.topbar').getBoundingClientRect(),hud=document.querySelector('#battle-target-panel').getBoundingClientRect();return{portrait:matchMedia('(orientation: portrait)').matches,orientation:screen.orientation?.type,viewport:{width:innerWidth,height:innerHeight},documentWidth:document.documentElement.scrollWidth,topbar:{bottom:top.bottom},hud:{left:hud.left,right:hud.right,top:hud.top,bottom:hud.bottom},name:document.querySelector('#battle-target-name').textContent}});
   expect(layout.portrait).toBeTruthy();expect(layout.documentWidth).toBe(layout.viewport.width);expect(layout.hud.left).toBeGreaterThanOrEqual(0);expect(layout.hud.right).toBeLessThanOrEqual(layout.viewport.width);expect(layout.hud.top).toBeGreaterThanOrEqual(layout.topbar.bottom-1);expect(layout.name).not.toBe('몬스터');expect(errors).toEqual([]);
-  await page.screenshot({path:'test-results/battlefield-mobile-portrait.png'});await context.close();
+  await context.close();
+});
+
+test('portrait battlefield quality controls respect device budget',async({browser})=>{
+  const context=await browser.newContext({viewport:{width:384,height:772},isMobile:true,hasTouch:true,deviceScaleFactor:3});
+  const page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.goto('/?dev=1',{waitUntil:'domcontentloaded'});await page.locator('#character-name').fill('품질설정검증');await page.locator('#class-archer').evaluate(button=>button.click());await page.locator('#create-submit').evaluate(button=>button.click());await expect(page.locator('#game')).toBeVisible();
+  await page.locator('#bag-open').evaluate(button=>button.click());await expect(page.locator('#battle-quality')).toHaveValue('balanced');await page.locator('#battle-quality').selectOption('low');await expect.poll(()=>page.evaluate(()=>localStorage.getItem('ashenValeQuality'))).toBe('low');
+  await page.locator('#battle-motion').check();await expect.poll(()=>page.evaluate(()=>localStorage.getItem('ashenValeMotion'))).toBe('reduced');
+  await expect.poll(()=>page.locator('#battle-fps').textContent()).not.toBe('FPS --');
+  const report=await page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth,canvasDpr:document.querySelector('#world').width/innerWidth,targetHidden:document.querySelector('#battle-target-panel').hidden}));
+  expect(report.scrollWidth).toBe(report.width);expect(report.canvasDpr).toBeLessThanOrEqual(1.01);expect(errors).toEqual([]);await context.close();
+});
+
+test('portrait battlefield remains within common phone widths',async({page})=>{
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));await page.setViewportSize({width:390,height:844});await page.goto('/?dev=1',{waitUntil:'domcontentloaded'});await page.locator('#character-name').fill('해상도검증');await page.locator('#class-archer').evaluate(button=>button.click());await page.locator('#create-submit').evaluate(button=>button.click());await expect(page.locator('#game')).toBeVisible();await expect(page.locator('#battle-target-panel')).toBeVisible();
+  for(const viewport of [{width:320,height:640},{width:360,height:740},{width:384,height:772},{width:412,height:915}]){await page.setViewportSize(viewport);const layout=await page.evaluate(()=>{const panel=document.querySelector('#battle-target-panel').getBoundingClientRect();return{width:innerWidth,scroll:document.documentElement.scrollWidth,left:panel.left,right:panel.right,top:panel.top,bottom:panel.bottom}});expect(layout.scroll).toBe(layout.width);expect(layout.left).toBeGreaterThanOrEqual(0);expect(layout.right).toBeLessThanOrEqual(layout.width);expect(layout.bottom).toBeLessThan(viewport.height)}expect(errors).toEqual([]);
 });
