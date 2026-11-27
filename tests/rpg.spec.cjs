@@ -22,6 +22,11 @@ async function createAccount(page,classId='warrior'){
   return user;
 }
 
+async function clickGameTab(page,selector){
+  if(await page.locator('#menu-dropdown').isHidden())await page.locator('#menu-toggle').click();
+  await page.locator(selector).click();
+}
+
 test('development shortcut opens character creation without login or realm selection',async({page})=>{
   const blocked=[];
   page.on('request',request=>{if(['/api/login','/api/signup','/api/rpg/servers','/api/rpg/server/select'].some(path=>request.url().endsWith(path)))blocked.push(request.url())});
@@ -83,16 +88,97 @@ test('automatic combat roams and kills without gear farming; gacha remains avail
   expect(before.autoHunt).toBeTruthy();
   await expect.poll(async()=>{const state=await page.evaluate(()=>window.__rpgInspect());return state.attackEffects.some(effect=>effect.kind==='archer')},{timeout:35000}).toBeTruthy();
   await expect.poll(async()=>{const state=await page.evaluate(()=>window.__rpgInspect());return state.kills>0&&state.x!==before.x||state.kills>0&&state.y!==before.y},{timeout:35000}).toBeTruthy();
-  await page.locator('#bag-open').click();
-  await expect(page.locator('#equipment-slots .gear-slot')).toHaveCount(4);
+  await clickGameTab(page,'#bag-open');
+  await expect(page.locator('#equipment-slots .gear-slot')).toHaveCount(5);
   await expect(page.locator('#combat-power')).not.toBeEmpty();
   await page.locator('#bag-close').click();
   expect(await page.evaluate(()=>window.__rpgInspect().items.length)).toBe(4);
 });
 
+test('archer arrow modes spend focus and automatic skills can be toggled',async({page})=>{
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await createAccount(page,'archer');
+  await clickGameTab(page,'#bag-open');
+  await expect(page.locator('#archer-arrow-setting')).toBeVisible();
+  await expect(page.locator('#archer-skills-setting')).toBeVisible();
+  const initial=await page.evaluate(()=>window.__rpgInspect().archerFocus);
+  await page.locator('#archer-arrow').selectOption('explosive');
+  await page.locator('#archer-auto-skills').uncheck();
+  expect(await page.evaluate(()=>window.__rpgInspect().autoSettings)).toMatchObject({arrowType:'explosive',autoSkills:false});
+  await page.locator('#bag-close').click();
+  await expect.poll(async()=>page.evaluate(()=>window.__rpgInspect().attackEffects.some(effect=>effect.kind==='archer'&&effect.arrowType==='explosive')),{timeout:45000}).toBeTruthy();
+  await expect.poll(async()=>page.evaluate(()=>window.__rpgInspect().archerFocus),{timeout:10000}).toBeLessThan(initial);
+  expect(errors).toEqual([]);
+});
+
+test('mobile archer combat settings fit the portrait viewport',async({browser})=>{
+  const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:1});
+  const page=await context.newPage();
+  await page.goto('/?dev=1');
+  await page.locator('#character-name').fill('모바일궁수');
+  await page.locator('[data-class="archer"]').click();
+  await page.locator('#create-submit').click();
+  await expect(page.locator('#game')).toBeVisible();
+  await clickGameTab(page,'#bag-open');
+  await expect(page.locator('#archer-arrow-setting')).toBeVisible();
+  await expect(page.locator('#archer-cost-note')).toBeVisible();
+  await expect(page.locator('#archer-skills-setting')).toBeVisible();
+  const layout=await page.evaluate(()=>{
+    const panel=document.querySelector('.gear-panel').getBoundingClientRect();
+    const ids=['archer-arrow-setting','archer-cost-note','archer-skills-setting','archer-focus-wrap'];
+    return {width:innerWidth,panel:{left:panel.left,right:panel.right},items:ids.map(id=>{const r=document.getElementById(id).getBoundingClientRect();return{id,left:r.left,right:r.right,top:r.top,bottom:r.bottom,hidden:document.getElementById(id).hidden}})};
+  });
+  for(const item of layout.items){expect(item.hidden).toBeFalsy();expect(item.left).toBeGreaterThanOrEqual(layout.panel.left-1);expect(item.right).toBeLessThanOrEqual(layout.panel.right+1)}
+  for(let i=0;i<layout.items.length;i++)for(let j=i+1;j<layout.items.length;j++){const a=layout.items[i],b=layout.items[j],overlapX=a.left<b.right&&b.left<a.right,overlapY=a.top<b.bottom&&b.top<a.bottom;expect(overlapX&&overlapY,`${a.id} overlaps ${b.id}`).toBeFalsy()}
+  await page.screenshot({path:'test-results/archer-mobile-portrait.png'});
+  await context.close();
+});
+
+test('equipped epic bow bonuses and bow image persist across reconnect',async({page})=>{
+  const user=await createAccount(page,'archer');
+  await clickGameTab(page,'#save-now');
+  await expect.poll(()=>page.locator('#save-status').textContent(),{timeout:5000}).toContain('모험이 계정에 저장되었습니다');
+  await clickGameTab(page,'#bag-open');
+  const saved=await page.evaluate(async()=>{
+    const state=window.__rpgInspect(),token=sessionStorage.getItem('ashenValeToken');
+    const bow={id:'review_epic_bow',visualKey:'bow_epic_1',name:'검수용 별빛 장궁',slot:'weapon',rarity:'epic',atk:20,def:0,enhance:0};
+    const response=await fetch('/api/rpg/save',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({...state,items:[...state.items,bow],equipment:{...state.equipment,weapon:bow.id},classId:'archer'})});
+    return response.status;
+  });
+  expect(saved).toBe(200);
+  await page.evaluate(()=>document.querySelector('#logout').click());
+  await page.locator('#uid').fill(user);await page.locator('#pw').fill('test-only-pass-123');
+  await page.locator('#auth-form button[type=submit]').click();
+  await expect(page.locator('#realm-select')).toBeVisible({timeout:20000});
+  await page.locator('[data-server="dawn"]').click();
+  await expect(page.locator('#character-select')).toBeVisible();
+  await page.locator('[data-enter]').click();
+  await expect(page.locator('#game')).toBeVisible();
+  const state=await page.evaluate(()=>window.__rpgInspect());
+  expect(state.classId).toBe('archer');
+  expect(state.equipment.weapon).toBe('review_epic_bow');
+  expect(state.combatStats.attackSpeed).toBeCloseTo(0.025,3);
+  expect(state.combatStats.critChance).toBeCloseTo(0.068,3);
+  await clickGameTab(page,'#bag-open');
+  const row=page.locator('.loot-item').filter({hasText:'검수용 별빛 장궁'});
+  await expect(row).toBeVisible();
+  await expect.poll(()=>row.locator('img').evaluate(image=>image.naturalWidth>0),{timeout:10000}).toBeTruthy();
+});
+
+test('all archer bow catalog images exist and carry combat bonuses',async({page})=>{
+  await page.goto('/?dev=1');
+  const bows=await page.evaluate(async()=>{
+    const {ARCHER_BOW_CATALOG}=await import('/equipment-visuals.js?catalog-review');
+    return Promise.all(ARCHER_BOW_CATALOG.map(async bow=>({key:bow.key,rarity:bow.rarity,shotColor:bow.shotColor,bonuses:bow.combatBonuses,imageOk:(await fetch(bow.src,{method:'HEAD'})).ok})));
+  });
+  expect(bows).toHaveLength(30);
+  expect(new Set(bows.map(bow=>bow.key)).size).toBe(30);
+  expect(bows.every(bow=>bow.imageOk&&bow.shotColor&&bow.bonuses&&bow.bonuses.critChance>0)).toBeTruthy();
+});
+
 test('server roster has three character slots with class choice and deletion',async({page})=>{
   const user=await createAccount(page);
-  await page.locator('#logout').click();
+  await clickGameTab(page,'#logout');
   await page.locator('#uid').fill(user);await page.locator('#pw').fill('test-only-pass-123');
   await page.locator('#auth-form button[type=submit]').click();
   await expect(page.locator('#realm-select')).toBeVisible({timeout:20000});
@@ -129,24 +215,28 @@ test('gold and free cash gacha save gear and guarantee rare gear on ten pulls',a
     return response.status;
   });
   expect(seeded).toBe(200);
-  await page.locator('#logout').click();
+  await clickGameTab(page,'#logout');
   await page.locator('#uid').fill(user);await page.locator('#pw').fill('test-only-pass-123');
   await page.locator('#auth-form button[type=submit]').click();
   await expect(page.locator('#realm-select')).toBeVisible({timeout:45000});
   await page.locator('[data-server="dawn"]').click();
   await page.locator('[data-enter]').click();
   await expect(page.locator('#game')).toBeVisible({timeout:20000});
-  await page.locator('#bag-open').click();
-  await page.locator('.gacha-card summary').click();
-  await page.locator('[data-gacha="cash:10"]').click();
+  await clickGameTab(page,'#shop-open');
+  await page.locator('[data-gacha="cash:10:weapon"]').click();
   await expect(page.locator('.gacha-result')).toHaveCount(10);
   let state=await page.evaluate(()=>window.__rpgInspect());
   expect(state.cash).toBe(100);
-  expect(state.items).toHaveLength(14);
-  expect(state.items.slice(-10).some(item=>['rare','epic','legendary'].includes(item.rarity))).toBeTruthy();
-  await page.locator('[data-gacha="gold:1"]').click();
+  const tenPull=state.summonHistory[0];
+  expect(tenPull.count).toBe(10);
+  expect(state.items).toHaveLength(4+10-tenPull.duplicateCount);
+  expect(state.gold).toBe(10000+tenPull.goldRefund);
+  expect(tenPull.items.some(item=>['rare','epic','unique','legendary','mythic','immortal'].includes(item.rarity))).toBeTruthy();
+  const goldBeforeSingle=state.gold;
+  await page.locator('[data-gacha="gold:1:weapon"]').click();
   state=await page.evaluate(()=>window.__rpgInspect());
-  expect(state.gold).toBe(9500);
+  const singlePull=state.summonHistory[0];
+  expect(state.gold).toBe(goldBeforeSingle-500+singlePull.goldRefund);
   expect(state.cash).toBe(100);
-  expect(state.items).toHaveLength(15);
+  expect(state.items).toHaveLength(4+10-tenPull.duplicateCount+(singlePull.duplicateCount?0:1));
 });

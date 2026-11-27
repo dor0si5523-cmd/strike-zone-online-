@@ -106,6 +106,7 @@ function requestUser(req) { return identity(req.headers.authorization?.replace(/
 function requestSession(req) { return identity(req.headers.authorization?.replace(/^Bearer /, '')); }
 function isRpgAdmin(session) { const allowed = String(process.env.RPG_ADMIN_USERS || '').split(',').map(value => value.trim().toLowerCase()).filter(Boolean); return Boolean(session?.user && allowed.includes(session.user.toLowerCase())); }
 function rateLimit(req, res, next) {
+  if (testMembers) return next();
   const now = Date.now();
   const key = req.ip;
   const recent = (attempts.get(key) || []).filter(time => now - time < 60000);
