@@ -83,3 +83,6 @@
 .menu-dropdown button{min-width:0;min-height:36px;padding:8px 10px;text-align:left;background:#1b2924;border:1px solid #d8d2ad35;border-radius:7px;font-size:11px;white-space:nowrap}
 @keyframes tabsDrop{from{opacity:0;transform:translateY(-8px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
 @media(max-width:680px) and (orientation:portrait){.menu-dropdown{max-width:min(360px,calc(100vw - 18px));max-height:calc(100dvh - env(safe-area-inset-top) - 130px);overflow-y:auto}}
+
+#game.tabs-open #toast{z-index:1}
+
