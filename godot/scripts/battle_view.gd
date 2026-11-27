@@ -4,16 +4,22 @@ signal state_changed(state: Dictionary)
 signal battle_notice(message: String)
 
 const WORLD_SIZE := Vector2(2600, 1900)
+const CLASS_DATA := {
+	"warrior": {"range":108.0, "cooldown":0.44, "multiplier":4.1},
+	"archer": {"range":290.0, "cooldown":0.56, "multiplier":2.9},
+	"mage": {"range":240.0, "cooldown":0.72, "multiplier":3.8},
+	"gunner": {"range":255.0, "cooldown":0.30, "multiplier":2.55}
+}
 const TYPE_DATA := {
-	"slime": {"name": "숲 슬라임", "hp": 48, "xp": 24, "gold": 8, "speed": 45.0, "color": Color("a8db78")},
-	"forest_wolf": {"name": "숲 늑대", "hp": 82, "xp": 39, "gold": 13, "speed": 72.0, "color": Color("a98a61")},
-	"ash_goblin": {"name": "잿빛 고블린", "hp": 112, "xp": 58, "gold": 18, "speed": 62.0, "color": Color("d18b69")},
-	"ash_wolf": {"name": "잿불 늑대", "hp": 145, "xp": 78, "gold": 24, "speed": 78.0, "color": Color("d66e43")},
-	"raider": {"name": "항구 약탈자", "hp": 230, "xp": 122, "gold": 38, "speed": 66.0, "color": Color("ca9d69")},
-	"reef_wraith": {"name": "산호 망령", "hp": 275, "xp": 150, "gold": 46, "speed": 54.0, "color": Color("78d6cc")},
-	"forest_guardian": {"name": "숲의 수호자", "hp": 720, "xp": 480, "gold": 260, "speed": 40.0, "color": Color("89bf70"), "boss": true},
-	"ash_golem": {"name": "잿빛 거신", "hp": 1850, "xp": 1350, "gold": 900, "speed": 32.0, "color": Color("d38762"), "boss": true},
-	"sea_leviathan": {"name": "심해의 레비아탄", "hp": 4200, "xp": 3200, "gold": 2200, "speed": 38.0, "color": Color("6bd3dc"), "boss": true}
+	"slime": {"name": "숲 슬라임", "hp": 48, "xp": 24, "gold": 8, "attack":3, "speed": 34.0, "color": Color("a8db78")},
+	"forest_wolf": {"name": "숲 늑대", "hp": 82, "xp": 39, "gold": 13, "attack":5, "speed": 57.0, "color": Color("a98a61")},
+	"ash_goblin": {"name": "잿빛 고블린", "hp": 112, "xp": 58, "gold": 18, "attack":8, "speed": 48.0, "color": Color("d18b69")},
+	"ash_wolf": {"name": "잿불 늑대", "hp": 145, "xp": 78, "gold": 24, "attack":10, "speed": 64.0, "color": Color("d66e43")},
+	"raider": {"name": "항구 약탈자", "hp": 230, "xp": 122, "gold": 38, "attack":14, "speed": 52.0, "color": Color("ca9d69")},
+	"reef_wraith": {"name": "산호 망령", "hp": 275, "xp": 150, "gold": 46, "attack":17, "speed": 42.0, "color": Color("78d6cc")},
+	"forest_guardian": {"name": "숲의 수호자", "hp": 720, "xp": 480, "gold": 260, "attack":16, "speed": 30.0, "color": Color("89bf70"), "boss": true},
+	"ash_golem": {"name": "잿빛 거신", "hp": 1850, "xp": 1350, "gold": 900, "attack":30, "speed": 25.0, "color": Color("d38762"), "boss": true},
+	"sea_leviathan": {"name": "심해의 레비아탄", "hp": 4200, "xp": 3200, "gold": 2200, "attack":48, "speed": 32.0, "color": Color("6bd3dc"), "boss": true}
 }
 const ZONE_COLOR := {"forest": Color("#536d43"), "ashlands": Color("#66584a"), "moonharbor": Color("#425b68")}
 
@@ -38,6 +44,9 @@ func apply_state(value: Dictionary) -> void:
 	queue_redraw()
 
 func configure(initial_state: Dictionary, initial_character: Dictionary) -> void:
+	mobs.clear()
+	trees.clear()
+	particles.clear()
 	state = initial_state.duplicate(true)
 	character = initial_character.duplicate(true)
 	player = Vector2(float(state.get("x", 1300)), float(state.get("y", 950)))
@@ -68,13 +77,16 @@ func _process(delta: float) -> void:
 		var enemy: Dictionary = mobs[target]
 		var offset: Vector2 = enemy["position"] - player
 		var distance := offset.length()
+		var class_data: Dictionary = CLASS_DATA.get(str(state.get("classId", character.get("classId", "warrior"))), CLASS_DATA["warrior"])
+		var preferred_range := float(class_data["range"]) * 0.76
 		facing = offset.normalized() if distance > 0.01 else facing
-		if distance > 78.0:
-			player += facing * 142.0 * step
+		if distance > preferred_range:
+			player += facing * 164.0 * step
 		else:
-			player += Vector2(-facing.y, facing.x) * sin(elapsed * 1.35) * 25.0 * step
+			player += Vector2(-facing.y, facing.x) * sin(elapsed * 1.35) * 38.0 * step
 			if attack_clock <= 0.0:
-				attack_clock = 0.78
+				var attack_speed: float = float(_combat_stats()["attack_speed"])
+				attack_clock = float(class_data["cooldown"]) / (1.0 + attack_speed)
 				_apply_attack(target)
 		var current: Dictionary = mobs[target]
 		var enemy_direction: Vector2 = player - current["position"]
@@ -92,15 +104,15 @@ func _process(delta: float) -> void:
 		elif move.length() <= 38.0:
 			mob["attack_clock"] = float(mob.get("attack_clock", 0.0)) - step
 			if float(mob["attack_clock"]) <= 0.0:
-				mob["attack_clock"] = 1.25
-				var defense := 0
-				for item in state.get("items", []):
-					if item.get("id", "") in state.get("equipment", {}).values(): defense += int(item.get("def", 0))
-				var suffered: int = maxi(1, int(600 / (100 + defense * 9)))
+				var enemy_stats: Dictionary = TYPE_DATA.get(str(mob["kind"]), TYPE_DATA["slime"])
+				mob["attack_clock"] = 0.85 if mob.get("boss", false) else (1.45 if float(enemy_stats["speed"]) < 40.0 else 1.15)
+				var defense: int = int(_combat_stats()["defense"])
+				var monster_data: Dictionary = TYPE_DATA.get(str(mob["kind"]), TYPE_DATA["slime"])
+				var suffered: int = maxi(1, int(ceil(float(monster_data["attack"]) * 100.0 / (100.0 + defense * 4.0))))
 				state["hp"] = max(0, int(state.get("hp", 100)) - suffered)
 				battle_notice.emit("피격 · HP -%s" % suffered)
 				if int(state["hp"]) <= 0:
-					state["hp"] = max(65, 100 + int(state.get("enhancements", {}).get("stats", {}).get("maxHp", 0)) * 5)
+					state["hp"] = max(65, int(_combat_stats()["max_hp"]))
 					player = Vector2(1300, 950)
 					battle_notice.emit("쓰러졌습니다 · 안전 지점에서 다시 일어났습니다.")
 					state_changed.emit(state.duplicate(true))
@@ -149,12 +161,14 @@ func _spawn_mob(forced_kind: String = "") -> void:
 func _apply_attack(index: int) -> void:
 	if index < 0 or index >= mobs.size(): return
 	var mob: Dictionary = mobs[index]
-	var stats: Dictionary = state.get("enhancements", {}).get("stats", {})
-	var weapon_bonus := 0
-	for item in state.get("items", []):
-		if item.get("id", "") == state.get("equipment", {}).get("weapon", ""):
-			weapon_bonus += int(item.get("atk", 0)) + int(item.get("enhance", 0)) * 3
-	var damage: int = max(5, 8 + weapon_bonus + int(stats.get("attack", 0)) * 2)
+	var stats := _combat_stats()
+	var class_data: Dictionary = CLASS_DATA.get(str(state.get("classId", character.get("classId", "warrior"))), CLASS_DATA["warrior"])
+	var level := _character_level(int(state.get("xp", 0)))
+	var distance: float = player.distance_to(mob["position"])
+	var range_bonus := 1.0 + minf(1.0, distance / float(class_data["range"])) * 0.35 if str(state.get("classId", "")) == "archer" else 1.0
+	var base_damage := roundi((int(stats["attack"]) * float(class_data["multiplier"]) + level * 2) * range_bonus)
+	var critical := random.randf() < float(stats["crit_chance"])
+	var damage := maxi(1, roundi(base_damage * (float(stats["crit_damage"]) if critical else 1.0)))
 	mob["hp"] = int(mob["hp"]) - damage
 	if int(mob["hp"]) <= 0:
 		mob["alive"] = false
@@ -188,7 +202,7 @@ func _apply_attack(index: int) -> void:
 			weekly["missionClaimed"] = false
 		weekly["kills"] = int(weekly.get("kills", 0)) + 1
 		state["weekly"] = weekly
-		state["hp"] = min(int(state.get("hp", 100)) + 2, 100 + int(stats.get("maxHp", 0)) * 5 + int(enhancements.get("gold", {}).get("maxHp", 0)) * 10)
+		state["hp"] = min(int(state.get("hp", 100)) + 2, int(stats["max_hp"]))
 		var floating := {"position": mob["position"], "amount": damage, "life": 0.0}
 		particles.append(floating)
 		target_index = -1
@@ -203,6 +217,60 @@ func _apply_attack(index: int) -> void:
 	else:
 		mobs[index] = mob
 		particles.append({"position": mob["position"], "amount": damage, "life": 0.0})
+		if critical:
+			battle_notice.emit("치명타 · %s 피해" % damage)
+
+func _character_level(xp: int) -> int:
+	var level := 1
+	var remaining := xp
+	var needed := 120
+	while remaining >= needed and level < 60:
+		remaining -= needed
+		level += 1
+		needed = 120 + (level - 1) * 45
+	return level
+
+func _combat_stats() -> Dictionary:
+	var level := _character_level(int(state.get("xp", 0)))
+	var attack := level * 2
+	var defense := 0
+	var equipment: Dictionary = state.get("equipment", {})
+	for item in state.get("items", []):
+		if item.get("id", "") in equipment.values():
+			attack += int(item.get("atk", 0)) + int(item.get("enhance", 0)) * 2
+			defense += int(item.get("def", 0)) + int(item.get("enhance", 0))
+	var enhancements: Dictionary = state.get("enhancements", {})
+	var gold: Dictionary = enhancements.get("gold", {})
+	var stats: Dictionary = enhancements.get("stats", {})
+	attack += (int(gold.get("attack", 0)) + int(stats.get("attack", 0))) * 2
+	var pet_level := maxi(1, int(state.get("growth", {}).get("petLevel", 1)))
+	attack += pet_level - 1
+	defense += int({"warrior":7, "archer":1, "mage":0, "gunner":2}.get(str(state.get("classId", "warrior")), 0))
+	defense += floori(float(pet_level - 1) / 5.0)
+	defense += int(gold.get("defense", 0)) + int(stats.get("defense", 0))
+	var max_hp := 100 + int(gold.get("maxHp", 0)) * 10 + int(stats.get("maxHp", 0)) * 5
+	var crit_chance := minf(0.75, 0.05 + (int(gold.get("critChance", 0)) + int(stats.get("critChance", 0))) * 0.005)
+	var crit_damage := 1.5 + int(gold.get("critDamage", 0)) * 0.03 + int(stats.get("critDamage", 0)) * 0.02
+	var attack_speed := 0.0
+	if str(state.get("classId", "warrior")) == "archer":
+		for item in state.get("items", []):
+			if item.get("id", "") != equipment.get("weapon", ""): continue
+			var visual_key := str(item.get("visualKey", ""))
+			if not visual_key.begins_with("bow_"): continue
+			var tier := 0
+			for tier_index in range(5):
+				if visual_key.begins_with("bow_" + ["epic", "unique", "legendary", "mythic", "immortal"][tier_index] + "_"): tier = tier_index + 1
+			var variant := 1
+			var parts := visual_key.split("_")
+			if parts.size() >= 3 and parts[-1].is_valid_int():
+				variant = int(parts[-1])
+			else:
+				variant = ["bow_ashwood", "bow_moonsteel", "bow_ember", "bow_thornvine", "bow_starfall"].find(visual_key) + 1
+			attack_speed = [0.0, 0.025, 0.045, 0.065, 0.085, 0.11][tier]
+			crit_chance = minf(0.75, crit_chance + [0.01, 0.018, 0.026, 0.034, 0.042, 0.05][tier])
+			crit_damage += 0.04 + (variant - 1) * 0.012
+			break
+	return {"attack":attack, "defense":defense, "max_hp":max_hp, "crit_chance":crit_chance, "crit_damage":crit_damage, "attack_speed":attack_speed}
 
 func export_state() -> Dictionary:
 	state["x"] = int(player.x)
@@ -321,3 +389,4 @@ func _draw_minimap(view: Vector2) -> void:
 		var rel: Vector2 = (mob["position"] - player) / WORLD_SIZE * 72.0
 		draw_circle(box.position + Vector2(43, 48) + rel, 2, Color("#e18b70"))
 	draw_circle(box.position + Vector2(43, 48), 3, Color("#e7c87b"))
+

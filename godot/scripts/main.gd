@@ -17,6 +17,7 @@ var active_character: Dictionary = {}
 var game_state: Dictionary = {}
 var battle: Control
 var save_timer: float = 0.0
+var last_saved_kills := 0
 var busy := false
 var battle_gold: Label
 var battle_hp: Label
@@ -167,6 +168,7 @@ func _resume_session() -> void:
 		_show_auth()
 		return
 	game_state = loaded.data
+	last_saved_kills = int(game_state.get("kills", 0))
 	_enter_battle()
 
 func _show_servers() -> void:
@@ -271,6 +273,7 @@ func _enter_character(character: Dictionary) -> void:
 		if loaded.ok:
 			active_character = character
 			game_state = loaded.data
+			last_saved_kills = int(game_state.get("kills", 0))
 			_enter_battle()
 		else:
 			await _show_characters()
@@ -317,7 +320,7 @@ func _enter_battle() -> void:
 	var menu := HBoxContainer.new()
 	menu.add_theme_constant_override("separation", 5)
 	nav_scroll.add_child(menu)
-	for title in ["캐릭터", "장비", "스킬", "퀘스트", "상점", "메뉴"]:
+	for title in ["캐릭터", "장비", "스킬", "지역", "퀘스트", "상점", "메뉴"]:
 		var b := Button.new()
 		b.text = title
 		b.custom_minimum_size = Vector2(70, 42)
@@ -420,6 +423,7 @@ func _open_game_panel(title: String) -> void:
 		"캐릭터": _render_character_panel()
 		"장비": _render_gear_panel()
 		"스킬": _render_skill_panel()
+		"지역": _render_zone_panel()
 		"퀘스트": _render_quest_panel()
 		"상점": _render_shop_panel()
 		"메뉴": _render_menu_panel()
@@ -481,20 +485,54 @@ func _available_points() -> int:
 	return maxi(0, (_level() - 1) * 5 - spent)
 
 func _combat_stats() -> Dictionary:
-	var attack := _level() * 2
-	var defense := 4
+	var level := _level()
+	var attack := level * 2
+	var defense := 0
 	var items: Array = game_state.get("items", [])
 	var equipment: Dictionary = game_state.get("equipment", {})
 	for slot in equipment:
 		for item in items:
 			if item.get("id", "") == equipment[slot]:
 				attack += int(item.get("atk", 0)) + int(item.get("enhance", 0)) * 2
-				defense += int(item.get("def", 0)) + int(item.get("enhance", 0)) * 2
+				defense += int(item.get("def", 0)) + int(item.get("enhance", 0))
+	var class_id := str(game_state.get("classId", active_character.get("classId", "warrior")))
+	var pet_level := maxi(1, int(game_state.get("growth", {}).get("petLevel", 1)))
+	attack += pet_level - 1
+	defense += int({"warrior":7, "archer":1, "mage":0, "gunner":2}.get(class_id, 0))
+	defense += floori(float(pet_level - 1) / 5.0)
 	var upgrades: Dictionary = game_state.get("enhancements", {})
 	attack += (int(upgrades.get("gold", {}).get("attack", 0)) + int(upgrades.get("stats", {}).get("attack", 0))) * 2
 	defense += int(upgrades.get("gold", {}).get("defense", 0)) + int(upgrades.get("stats", {}).get("defense", 0))
 	var max_hp := 100 + int(upgrades.get("gold", {}).get("maxHp", 0)) * 10 + int(upgrades.get("stats", {}).get("maxHp", 0)) * 5
-	return {"attack": attack, "defense": defense, "max_hp": max_hp, "power": attack * 12 + defense * 9 + max_hp}
+	var gold_upgrades: Dictionary = upgrades.get("gold", {})
+	var stat_upgrades: Dictionary = upgrades.get("stats", {})
+	var crit_chance := minf(0.75, 0.05 + (int(gold_upgrades.get("critChance", 0)) + int(stat_upgrades.get("critChance", 0))) * 0.005)
+	var crit_damage := 1.5 + int(gold_upgrades.get("critDamage", 0)) * 0.03 + int(stat_upgrades.get("critDamage", 0)) * 0.02
+	var attack_speed := 0.0
+	if class_id == "archer":
+		for item in items:
+			if item.get("id", "") == equipment.get("weapon", ""):
+				var visual_key := str(item.get("visualKey", ""))
+				var tier := 0
+				var tier_names := ["epic", "unique", "legendary", "mythic", "immortal"]
+				for tier_index in range(tier_names.size()):
+					if visual_key.begins_with("bow_" + tier_names[tier_index] + "_"): tier = tier_index + 1
+				if visual_key.begins_with("bow_"):
+					var variant := 1
+					var parts := visual_key.split("_")
+					if parts.size() >= 3 and parts[-1].is_valid_int():
+						variant = int(parts[-1])
+					else:
+						var rare_keys := ["bow_ashwood", "bow_moonsteel", "bow_ember", "bow_thornvine", "bow_starfall"]
+						variant = rare_keys.find(visual_key) + 1
+					var speed_values := [0.0, 0.025, 0.045, 0.065, 0.085, 0.11]
+					var crit_values := [0.01, 0.018, 0.026, 0.034, 0.042, 0.05]
+					attack_speed = speed_values[tier]
+					crit_chance = minf(0.75, crit_chance + crit_values[tier])
+					crit_damage += 0.04 + (variant - 1) * 0.012
+				break
+	var power := level * 12 + attack * 3 + defense * 2 + floori(max_hp * 0.15) + floori(crit_chance * 100) + floori((crit_damage - 1.0) * 20) + roundi(attack_speed * 100)
+	return {"attack": attack, "defense": defense, "max_hp": max_hp, "crit_chance": crit_chance, "crit_damage": crit_damage, "power": power}
 
 func _render_gear_panel() -> void:
 	_make_overlay("장비")
@@ -582,6 +620,33 @@ func _render_skill_panel() -> void:
 	var skills := {"warrior":["강철 베기", "회전 참격", "수호 태세"], "archer":["관통 화살", "다중 사격", "회피 사격", "덫 설치"], "mage":["비전 탄환", "서리 폭발", "마력 보호막"], "gunner":["속사", "산탄 폭발", "화약 회피"]}
 	for name in skills.get(class_id, []): _panel_label("✦ " + name)
 	_panel_label("스킬 자동 사용과 스킬별 설정 UI를 다음 포팅 단계에서 연결합니다.")
+
+func _render_zone_panel() -> void:
+	_make_overlay("지역 이동")
+	var zones := [{"id":"forest", "name":"초록숲", "level":1}, {"id":"ashlands", "name":"잿빛 고원", "level":8}, {"id":"moonharbor", "name":"달빛 항구", "level":18}]
+	var current_zone := str(game_state.get("zoneId", "forest"))
+	var level := _level()
+	_panel_label("현재 지역: %s · 캐릭터 레벨 %s\n지역과 입장 레벨은 웹게임과 같은 서버 기준을 사용합니다." % [_zone_name(current_zone), level])
+	for zone in zones:
+		var zone_id := str(zone.id)
+		var required := int(zone.level)
+		var label := "%s · Lv.%s 이상" % [zone.name, required]
+		if zone_id == current_zone: label += " · 현재 지역"
+		_panel_button(label, _travel_to_zone.bind(zone_id), zone_id == current_zone or level < required)
+
+func _zone_name(zone_id: String) -> String:
+	return {"forest":"초록숲", "ashlands":"잿빛 고원", "moonharbor":"달빛 항구"}.get(zone_id, "초록숲")
+
+func _travel_to_zone(zone_id: String) -> void:
+	var response: Dictionary = await GameApi.call_api("/api/rpg/zone/travel", HTTPClient.METHOD_POST, {"zoneId": zone_id})
+	if not response.ok:
+		_panel_label(response.error)
+		return
+	game_state = response.data.get("state", game_state)
+	if battle:
+		battle.configure(game_state, active_character)
+		_on_state_changed(game_state)
+	_render_zone_panel()
 
 func _render_quest_panel() -> void:
 	_make_overlay("퀘스트·보상")
@@ -692,8 +757,9 @@ func _on_state_changed(value: Dictionary) -> void:
 	if battle_gold: battle_gold.text = "◈ %s" % str(game_state.get("gold", 0))
 	if battle_hp: battle_hp.text = "HP %s" % str(game_state.get("hp", 100))
 	if battle_identity:
-		var level := 1 + int(game_state.get("xp", 0)) / 120
-		battle_identity.text = "%s · Lv.%s" % [active_character.get("name", "모험가"), level]
+		battle_identity.text = "%s · Lv.%s" % [active_character.get("name", "모험가"), _level()]
+	if int(game_state.get("kills", 0)) - last_saved_kills >= 5:
+		_save_progress()
 
 func _show_battle_notice(message: String) -> void:
 	if battle_notice_label:
@@ -714,6 +780,12 @@ func _save_progress() -> void:
 	busy = false
 	if not response.ok:
 		_show_battle_notice("저장에 실패했습니다 · " + response.error)
+		return
+	game_state = response.data.get("rpg", game_state)
+	last_saved_kills = int(game_state.get("kills", 0))
+	if battle:
+		battle.apply_state(game_state)
+		_on_state_changed(game_state)
 
 func _logout() -> void:
 	if battle:
@@ -726,3 +798,4 @@ func _logout() -> void:
 		current_overlay = null
 	await GameApi.logout()
 	_show_auth()
+
