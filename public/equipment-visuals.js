@@ -30,13 +30,22 @@ const tiers = {
   ]
 };
 const labels = { rare: '레어', epic: '에픽', unique: '유니크', legendary: '레전드리', mythic: '신화', immortal: '불멸' };
-export const ARCHER_BOW_CATALOG = Object.freeze(Object.entries(tiers).flatMap(([rarity, entries]) => entries.map(([key, name, file]) => {
+const shotColors = {
+  rare: ['#7edbff', '#5bbaff', '#a4e5ff', '#4d97ec', '#8ad8e8'],
+  epic: ['#c398ff', '#a77cff', '#df9cff', '#9863e8', '#ce8bff'],
+  unique: ['#ffe06c', '#ffbd45', '#fff18a', '#e9a93b', '#ffd267'],
+  legendary: ['#86e889', '#58d66a', '#a4f37b', '#4cb981', '#b4e66d'],
+  mythic: ['#ffffff', '#c9f5ff', '#fff0c9', '#d9d7ff', '#f7fbff'],
+  immortal: ['#ff8a70', '#ff4c48', '#ffb24d', '#e54870', '#ff6a38']
+};
+export const ARCHER_BOW_CATALOG = Object.freeze(Object.entries(tiers).flatMap(([rarity, entries]) => entries.map(([key, name, file], variant) => {
   const src = rarity === 'rare' ? file : `/assets/equipment/bows/${file}`;
   return Object.freeze({
     key, name, rarity, rarityLabel: labels[rarity], src, iconSrc: src, slot: 'weapon',
     width: rarity === 'rare' ? 42 : 46, height: rarity === 'rare' ? 68 : 38,
     grip: rarity === 'rare' ? { x: 0.44, y: 0.5 } : { x: 0.5, y: 0.5 },
     animation: { swingRadians: 0.035 },
+    shotColor: shotColors[rarity][variant], shotStyle: variant,
     ...(rarity === 'rare' ? {} : { rotationOffset: Math.PI / 2, frames: { idle: { x: 46, y: 46, w: 420, h: 420 } }, removeBackdrop: true })
   });
 })));
