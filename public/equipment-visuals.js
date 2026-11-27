@@ -96,9 +96,28 @@ export const HELMET_CATALOG = Object.freeze(Object.entries(helmetNames).flatMap(
 })));
 const helmetCatalogVisuals = Object.fromEntries(HELMET_CATALOG.map(({ key, ...visual }) => [key, visual]));
 
+const bootsNames = {
+  rare: ['청람 순찰 장화', '파도날 경갑화', '푸른 비늘 장화', '해풍 추적화', '빙하 방벽 장화'],
+  epic: ['자수정 룬 장화', '달무리 비전화', '공허 수정 장화', '별술사 장화', '심연 마도화'],
+  unique: ['태양왕 장화', '황금 사자 장화', '용린 금화', '백금 결투화', '찬란한 수호 장화'],
+  legendary: ['숲수호자 장화', '생명의 잎 장화', '가시나무 장화', '초록바람 추적화', '고대수호 장화'],
+  mythic: ['백익 성휘 장화', '월광 수정화', '천공 진주 장화', '은하 수호화', '순백 성좌 장화'],
+  immortal: ['홍염 파멸 장화', '혈강철 장화', '용암 비늘화', '진홍 망령 장화', '종말의 흑화']
+};
+export const BOOTS_CATALOG = Object.freeze(Object.entries(bootsNames).flatMap(([rarity, names]) => names.map((name, index) => {
+  const key = `boots_${rarity}_${index + 1}`;
+  const src = `/assets/equipment/boots/${rarity}-${index + 1}.png`;
+  return Object.freeze({
+    key, name, rarity, rarityLabel: armorRarityLabels[rarity], frameColor: armorFrameColors[rarity], slot: 'boots', src, iconSrc: src,
+    width: 28, height: 18, grip: { x: 0.5, y: 0.5 }, pairSprite: true, frames: { idle: { x: 24, y: 24, w: 208, h: 208 } }
+  });
+})));
+const bootsCatalogVisuals = Object.fromEntries(BOOTS_CATALOG.map(({ key, ...visual }) => [key, visual]));
+
 export const EQUIPMENT_VISUALS = Object.freeze({
   ...Object.fromEntries(ARCHER_BOW_CATALOG.map(({ key, ...visual }) => [key, visual])),
   ...sharedArmorVisuals,
   ...armorCatalogVisuals,
-  ...helmetCatalogVisuals
+  ...helmetCatalogVisuals,
+  ...bootsCatalogVisuals
 });
