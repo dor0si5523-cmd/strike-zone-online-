@@ -1,4 +1,4 @@
-import { ARCHER_BOW_CATALOG, EQUIPMENT_VISUALS } from './equipment-visuals.js?v=shared-armor-20261127';
+import { ARCHER_BOW_CATALOG, EQUIPMENT_VISUALS } from './equipment-visuals.js?v=armor-catalog-30-20261127';
 const $=id=>document.getElementById(id);
 const portal=$('portal'),game=$('game'),canvas=$('world'),ctx=canvas.getContext('2d',{alpha:false});
 const tokenKey='ashenValeToken',savedNameKey='savedUser',devSaveKey='ashenValeDevCharacter',devMode=new URLSearchParams(location.search).get('account')!=='1';let token='',username='',signup=false,playing=false;

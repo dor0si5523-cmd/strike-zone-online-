@@ -13,3 +13,8 @@ The renderer keeps a procedural fallback until a matching visual is registered, 
 ## Archer bow catalog
 
 The 30 archer weapon keys are registered in `public/equipment-visuals.js`: the five existing bows are the Rare set, and 25 individually generated framed icons fill the Epic, Unique, Legendary, Mythic, and Immortal sets. Gacha results save the selected appearance key, and that same key drives the inventory icon and equipped weapon image. Icon frame colors are blue, purple, yellow, green, white, and red by tier. Optimized WebP artwork is in `bows/`.
+
+## Shared armor appearance catalog
+
+`public/equipment-visuals.js` registers 30 shared chest armor variants under `armor_<rarity>_<number>` keys. Each icon has a tier-colored frame for inventory display; the character renderer crops the central artwork when the armor is equipped. PNG icons are 256 × 256 with transparent padding.
+

@@ -47,14 +47,39 @@ const armorAppearance = {
 const sharedArmorVisuals = Object.fromEntries(
   ['armor', 'boots', 'ring'].flatMap(slot => Object.entries(armorAppearance).map(([rarity, appearance]) => [
     `${slot}_${rarity}`,
-    Object.freeze({ slot, appearance: Object.freeze({ ...appearance }) })
+    Object.freeze({
+      slot,
+      ...(slot === 'armor' ? { src: '/assets/equipment/forest-warden-armor.png', iconSrc: '/assets/equipment/forest-warden-armor.png', width: 40, height: 40, grip: { x: 0.5, y: 0.5 } } : {}),
+      appearance: Object.freeze({ ...appearance })
+    })
   ]))
 );
-sharedArmorVisuals.starter_coat = Object.freeze({ slot: 'armor', appearance: Object.freeze({ ...armorAppearance.common, variant: 2 }) });
+sharedArmorVisuals.starter_coat = Object.freeze({ slot: 'armor', src: '/assets/equipment/forest-warden-armor.png', iconSrc: '/assets/equipment/forest-warden-armor.png', width: 40, height: 40, grip: { x: 0.5, y: 0.5 }, appearance: Object.freeze({ ...armorAppearance.common, variant: 2 }) });
 sharedArmorVisuals.starter_boots = Object.freeze({ slot: 'boots', appearance: Object.freeze({ color: '#554637', accent: '#d0ad72', variant: 1 }) });
 sharedArmorVisuals.starter_ring = Object.freeze({ slot: 'ring', appearance: Object.freeze({ color: '#805a27', accent: '#edc45b', variant: 2 }) });
 
+const armorNames = {
+  rare: ['청해 파수 흉갑', '파도날 판금갑', '푸른 비늘 갑주', '해풍 추적 흉갑', '빙하 방벽갑'],
+  epic: ['자수정 룬 흉갑', '달무리 비전갑', '공허 수정 갑주', '별술사 흉갑', '심연 마도갑'],
+  unique: ['태양왕 흉갑', '황금 사자 갑주', '용린 금갑', '백금 결투갑', '찬란한 수호갑'],
+  legendary: ['숲수호자 흉갑', '생명의 잎갑', '가시나무 갑주', '초록바람 추적갑', '고대수호 판금갑'],
+  mythic: ['백익 성휘갑', '월광 수정갑', '천공 진주갑', '은하 수호 흉갑', '순백 성좌갑'],
+  immortal: ['홍염 파멸갑', '혈강철 흉갑', '용암 비늘갑', '진홍 망령갑', '종말의 흑갑']
+};
+const armorRarityLabels = { rare: '레어', epic: '에픽', unique: '유니크', legendary: '레전드리', mythic: '신화', immortal: '불멸' };
+const armorFrameColors = { rare: '#208cff', epic: '#bd58ff', unique: '#ffd42a', legendary: '#58d45c', mythic: '#fffdf1', immortal: '#ff3434' };
+export const ARMOR_CATALOG = Object.freeze(Object.entries(armorNames).flatMap(([rarity, names]) => names.map((name, index) => {
+  const key = `armor_${rarity}_${index + 1}`;
+  const src = `/assets/equipment/armor/${rarity}-${index + 1}.png`;
+  return Object.freeze({
+    key, name, rarity, rarityLabel: armorRarityLabels[rarity], frameColor: armorFrameColors[rarity], slot: 'armor', src, iconSrc: src,
+    width: 40, height: 40, grip: { x: 0.5, y: 0.5 }, frames: { idle: { x: 24, y: 24, w: 208, h: 208 } }
+  });
+})));
+const armorCatalogVisuals = Object.fromEntries(ARMOR_CATALOG.map(({ key, ...visual }) => [key, visual]));
+
 export const EQUIPMENT_VISUALS = Object.freeze({
   ...Object.fromEntries(ARCHER_BOW_CATALOG.map(({ key, ...visual }) => [key, visual])),
-  ...sharedArmorVisuals
+  ...sharedArmorVisuals,
+  ...armorCatalogVisuals
 });
