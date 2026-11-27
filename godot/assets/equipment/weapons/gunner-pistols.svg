@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+ <defs><linearGradient id="iron" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#38474d"/><stop offset=".48" stop-color="#c7d2ca"/><stop offset="1" stop-color="#64777b"/></linearGradient><linearGradient id="brass"><stop stop-color="#ffe2a1"/><stop offset="1" stop-color="#98703e"/></linearGradient></defs>
+ <g transform="rotate(-42 42 65)"><path d="M23 33h32q5 0 5 5v18h-9v18H34V56h-9q-5 0-5-5V38q0-5 3-5z" fill="url(#iron)" stroke="#263135" stroke-width="4"/><path d="M33 74h18v28q0 7-9 7t-9-7z" fill="#543b2e" stroke="#28221e" stroke-width="4"/><path d="M27 43h22v7H27z" fill="url(#brass)"/><circle cx="50" cy="42" r="3" fill="#f5e4b9"/></g>
+ <g transform="rotate(42 86 65)"><path d="M73 33h32q5 0 5 5v18h-9v18H84V56h-9q-5 0-5-5V38q0-5 3-5z" fill="url(#iron)" stroke="#263135" stroke-width="4"/><path d="M83 74h18v28q0 7-9 7t-9-7z" fill="#543b2e" stroke="#28221e" stroke-width="4"/><path d="M77 43h22v7H77z" fill="url(#brass)"/><circle cx="100" cy="42" r="3" fill="#f5e4b9"/></g>
+</svg>
+

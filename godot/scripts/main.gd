@@ -750,6 +750,17 @@ func _equipment_icon_path(item: Dictionary) -> String:
 	# Use app-local replacement artwork while preserving the web originals.
 	var repaired_art := {"armor_mythic_5":"armor-mythic-5.png", "boots_mythic_5":"boots-mythic-5.png", "helmet_legendary_5":"helmet-legendary-5.png", "ring_epic_1":"ring-epic-1.png", "ring_epic_2":"ring-epic-2.png", "ring_epic_4":"ring-epic-4.png", "ring_mythic_1":"ring-mythic-1.png", "ring_mythic_2":"ring-mythic-2.png", "ring_mythic_5":"ring-mythic-5.png", "ring_unique_1":"ring-unique-1.png"}
 	if repaired_art.has(key): return "res://assets/equipment/fallback/" + str(repaired_art[key])
+	# Non-archer weapon summons use weapon_<rarity>_<variant> keys. The app
+	# previously fell through to the crossed-swords placeholder for every one.
+	if key.begins_with("weapon_"):
+		var rarity := key.get_slice("_", 1)
+		var number := key.get_slice("_", 2)
+		if number.is_valid_int():
+			match str(game_state.get("classId", "warrior")):
+				"archer": return "res://assets/equipment/bows/%s-%s.webp" % [rarity, number]
+				"mage": return "res://assets/equipment/weapons/mage-staff.svg"
+				"gunner": return "res://assets/equipment/weapons/gunner-pistols.svg"
+				_: return "res://assets/equipment/weapons/warrior-sword.svg"
 	if key.begins_with("bow_"):
 		var names := {"bow_ashwood":"ashwood-bow.png", "bow_moonsteel":"moonsteel-bow.png", "bow_ember":"ember-bow.png", "bow_thornvine":"thornvine-bow.png", "bow_starfall":"starfall-bow.png"}
 		var rare_bows := ["ashwood-bow.png", "moonsteel-bow.png", "ember-bow.png", "thornvine-bow.png", "starfall-bow.png"]
@@ -1250,4 +1261,5 @@ func _logout() -> void:
 	else:
 		await GameApi.logout()
 	_show_auth()
+
 

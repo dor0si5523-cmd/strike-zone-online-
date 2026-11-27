@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+ <defs><linearGradient id="wood" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#563d30"/><stop offset=".5" stop-color="#bb8954"/><stop offset="1" stop-color="#6c4b35"/></linearGradient><radialGradient id="orb"><stop stop-color="#efffff"/><stop offset=".48" stop-color="#85e0d7"/><stop offset="1" stop-color="#4777a4"/></radialGradient></defs>
+ <path d="M33 105 83 39l9 7-50 67z" fill="url(#wood)" stroke="#2c2522" stroke-width="4" stroke-linejoin="round"/>
+ <path d="m72 50 10 8M64 61l10 8M56 72l10 8" stroke="#e3be7a" stroke-width="4"/>
+ <path d="M27 108q-5 7-1 11 7 3 12-3l5-5-9-8z" fill="#b78b50" stroke="#33271e" stroke-width="3"/>
+ <path d="M81 39 93 17l5 13 14 2-19 18z" fill="#cfaa66" stroke="#342b27" stroke-width="3"/>
+ <circle cx="98" cy="19" r="16" fill="url(#orb)" stroke="#d9c889" stroke-width="4"/><path d="M98 7v24M86 19h24" stroke="#edffff" stroke-width="2" opacity=".7"/>
+</svg>
+
