@@ -795,6 +795,10 @@ func _add_equipment_icon(parent: Container, item: Dictionary, slot: String) -> v
 	var rarity_colors := {"common":Color("879080"), "uncommon":Color("79a98d"), "rare":Color("639fc1"), "epic":Color("a584c8"), "unique":Color("d8ad61"), "legendary":Color("79b779"), "mythic":Color("eee9d9"), "immortal":Color("df625d")}
 	var frame := PanelContainer.new()
 	frame.custom_minimum_size = Vector2(58, 58)
+	frame.size = Vector2(58, 58)
+	frame.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	frame.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	frame.clip_contents = true
 	var frame_style := StyleBoxFlat.new()
 	frame_style.bg_color = Color("111913")
 	frame_style.border_color = rarity_colors.get(rarity, Color("75865d"))
@@ -807,8 +811,12 @@ func _add_equipment_icon(parent: Container, item: Dictionary, slot: String) -> v
 		var icon := TextureRect.new()
 		icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		icon.offset_left = 4; icon.offset_top = 4; icon.offset_right = -4; icon.offset_bottom = -4
-		icon.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
+		# Ignore source texture dimensions so large equipment art cannot enlarge
+		# the row or escape its rarity frame on mobile layouts.
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		icon.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		icon.texture = load(path)
 		frame.add_child(icon)
 	else:
@@ -1271,6 +1279,7 @@ func _logout() -> void:
 	else:
 		await GameApi.logout()
 	_show_auth()
+
 
 
 
