@@ -46,6 +46,7 @@ const GACHA_PRICES = { gold: { 1: 500, 10: 4500 }, cash: { 1: 100, 10: 900 } };
 const GACHA_PITY = { epic: 30, legendary: 100 };
 const DUPLICATE_GOLD = { common: 80, uncommon: 150, rare: 350, epic: 1200, unique: 2200, legendary: 4000, mythic: 8000, immortal: 16000 };
 const GEAR_RARITY = ['common', 'uncommon', 'rare', 'epic', 'unique', 'legendary', 'mythic', 'immortal'];
+const CLASS_WEAPON_NAMES = { warrior: ['바위산 파쇄검', '수호자의 대검', '검은나무 장검'], mage: ['별무리 마도서', '서리 마력 지팡이', '황혼 수정봉'], gunner: ['쌍달 권총', '붉은 해적총', '폭풍 플린트락'] };
 const ARCHER_BOWS = [
   ['솔바람 장궁','bow_ashwood','rare'], ['월강성궁','bow_moonsteel','rare'], ['잿불 파쇄궁','bow_ember','rare'], ['가시덩굴 정령궁','bow_thornvine','rare'], ['별빛 왕관궁','bow_starfall','rare'],
   ['달무리 이중궁','bow_epic_1','epic'], ['공명 천공궁','bow_epic_2','epic'], ['가시 군주의 흑궁','bow_epic_3','epic'], ['비전 고리활','bow_epic_4','epic'], ['자수정 파쇄궁','bow_epic_5','epic'],
@@ -327,25 +328,22 @@ function characterLevel(xp) {
   return level;
 }
 function generateGachaGear(level, forcedRarity = null, classId = 'warrior') {
-  const slot = ['weapon', 'armor', 'boots', 'ring'][crypto.randomInt(4)];
-  let rarity, bow = null;
-  if (slot === 'weapon' && classId === 'archer') {
-    const tiers = [['rare', 6500], ['epic', 2000], ['unique', 1000], ['legendary', 400], ['mythic', 90], ['immortal', 10]];
-    const roll = crypto.randomInt(10000);
-    let edge = 0;
-    rarity = forcedRarity || 'rare';
-    for (const [tier, weight] of tiers) { edge += weight; if (roll < edge) { rarity = forcedRarity || tier; break; } }
+  const slot = 'weapon';
+  const tiers = [['rare', 8000], ['epic', 1500], ['unique', 400], ['legendary', 90], ['mythic', 9], ['immortal', 1]];
+  const roll = crypto.randomInt(10000);
+  let edge = 0, rarity = forcedRarity || 'rare';
+  for (const [tier, weight] of tiers) { edge += weight; if (roll < edge) { rarity = forcedRarity || tier; break; } }
+  let bow = null;
+  if (classId === 'archer') {
     const candidates = ARCHER_BOWS.filter(item => item.rarity === rarity);
     bow = candidates[crypto.randomInt(candidates.length)];
-  } else {
-    const roll = crypto.randomInt(10000);
-    rarity = forcedRarity || (roll < 6000 ? 'common' : roll < 8500 ? 'uncommon' : roll < 9600 ? 'rare' : roll < 9950 ? 'epic' : 'legendary');
   }
-  const multiplier = { common: 1, uncommon: 1.35, rare: 1.8, epic: 2.5, unique: 3.1, legendary: 4.1, mythic: 5.3, immortal: 7 }[rarity];
-  const prefix = { common: '낡은', uncommon: '정교한', rare: '레어', epic: '에픽', unique: '유니크', legendary: '레전드리', mythic: '신화', immortal: '불멸' }[rarity];
-  const gearName = bow?.name || GEAR_NAMES[slot][crypto.randomInt(GEAR_NAMES[slot].length)];
-  const base = Math.max(1, Math.round(level * multiplier * (slot === 'weapon' ? 2.5 : 1)));
-  return { id: 'gacha_' + crypto.randomUUID(), visualKey: bow?.visualKey || `${slot}_${rarity}`, name: `${prefix} ${gearName}`, slot, rarity, atk: slot === 'weapon' ? base : Math.floor(base * .28), def: slot === 'weapon' ? Math.floor(base * .22) : base, enhance: 0 };
+  const multiplier = { rare: 1.8, epic: 2.5, unique: 3.1, legendary: 4.1, mythic: 5.3, immortal: 7 }[rarity];
+  const prefix = { rare: '레어', epic: '에픽', unique: '유니크', legendary: '레전드리', mythic: '신화', immortal: '불멸' }[rarity];
+  const weaponPool = classId === 'archer' ? [] : CLASS_WEAPON_NAMES[classId] || GEAR_NAMES[slot];
+  const gearName = bow?.name || weaponPool[crypto.randomInt(weaponPool.length)];
+  const base = Math.max(1, Math.round(level * multiplier * 2.5));
+  return { id: 'gacha_' + crypto.randomUUID(), visualKey: bow?.visualKey || `${slot}_${rarity}`, name: `${prefix} ${gearName}`, slot, rarity, atk: base, def: Math.floor(base * .22), enhance: 0 };
 }
 
 app.get('/api/rpg/servers', async (req, res) => {
