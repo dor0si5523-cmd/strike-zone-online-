@@ -35,6 +35,11 @@ var developer_has_existing := false
 var community_opted_in := false
 var community_clan: Dictionary = {}
 var community_weekly_claimed := false
+var battle_nav: ScrollContainer
+var held_upgrade_key := ""
+var held_upgrade_wait := 0.0
+var upgrade_busy := false
+var hold_upgrade_button: Button
 
 func _ready() -> void:
 	_build_shell()
@@ -101,6 +106,7 @@ func _button(text: String, action: Callable) -> Button:
 	button.text = text
 	button.custom_minimum_size.y = 48
 	button.add_theme_font_size_override("font_size", 16)
+	_style_button(button)
 	button.pressed.connect(action)
 	page.add_child(button)
 	return button
@@ -233,11 +239,13 @@ func _show_characters() -> void:
 		var select_button := Button.new()
 		select_button.text = "입장"
 		select_button.custom_minimum_size = Vector2(74, 44)
+		_style_button(select_button, true)
 		select_button.pressed.connect(_enter_character.bind(character))
 		line.add_child(select_button)
 		var delete_button := Button.new()
 		delete_button.text = "삭제"
 		delete_button.custom_minimum_size = Vector2(64, 44)
+		_style_button(delete_button, true)
 		delete_button.pressed.connect(_confirm_delete.bind(character_id))
 		line.add_child(delete_button)
 	if characters.size() < 3:
@@ -384,19 +392,24 @@ func _enter_battle() -> void:
 	battle_cash = Label.new()
 	battle_cash.text = "✧ %s" % str(game_state.get("cash", 0))
 	resource_bar.add_child(battle_cash)
-	var nav_scroll := ScrollContainer.new()
-	nav_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
-	nav_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	nav_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hud.add_child(nav_scroll)
+	battle_nav = ScrollContainer.new()
+	battle_nav.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	battle_nav.offset_left = 8
+	battle_nav.offset_right = -8
+	battle_nav.offset_top = -58
+	battle_nav.offset_bottom = -8
+	battle_nav.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
+	battle_nav.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	add_child(battle_nav)
 	var menu := HBoxContainer.new()
-	menu.add_theme_constant_override("separation", 5)
-	nav_scroll.add_child(menu)
+	menu.add_theme_constant_override("separation", 2)
+	battle_nav.add_child(menu)
 	for title in ["캐릭터", "장비", "스킬", "던전", "퀘스트", "상점&뽑기", "이벤트", "우편함", "메뉴"]:
 		var b := Button.new()
 		b.text = title
-		b.custom_minimum_size = Vector2(76 if title == "상점&뽑기" else 50, 42)
-		b.add_theme_font_size_override("font_size", 10)
+		b.custom_minimum_size = Vector2(62 if title == "상점&뽑기" else 42, 46)
+		b.add_theme_font_size_override("font_size", 9)
+		_style_button(b, true)
 		b.pressed.connect(_open_game_panel.bind(title))
 		menu.add_child(b)
 	var bottom := Label.new()
@@ -405,7 +418,8 @@ func _enter_battle() -> void:
 	bottom.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	bottom.offset_left = 10
 	bottom.offset_right = -10
-	bottom.offset_bottom = -16
+	bottom.offset_top = -285
+	bottom.offset_bottom = -245
 	bottom.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	add_child(bottom)
 	battle_hud = hud
@@ -451,6 +465,7 @@ func _make_overlay(title: String) -> void:
 	header.add_child(heading)
 	var close := Button.new()
 	close.text = "닫기"
+	_style_button(close, true)
 	close.pressed.connect(_close_overlay)
 	header.add_child(close)
 	var scroll := ScrollContainer.new()
@@ -463,6 +478,8 @@ func _make_overlay(title: String) -> void:
 	scroll.add_child(overlay_content)
 
 func _close_overlay() -> void:
+	held_upgrade_key = ""
+	hold_upgrade_button = null
 	if current_overlay:
 		current_overlay.queue_free()
 		current_overlay = null
@@ -480,9 +497,45 @@ func _panel_button(text: String, action: Callable, disabled: bool = false) -> Bu
 	button.text = text
 	button.custom_minimum_size.y = 44
 	button.disabled = disabled
+	_style_button(button)
 	button.pressed.connect(action)
 	overlay_content.add_child(button)
 	return button
+
+func _style_button(button: Button, compact: bool = false) -> void:
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color("263b30")
+	normal.border_color = Color("75865d")
+	normal.set_border_width_all(1)
+	normal.border_width_bottom = 3
+	normal.set_corner_radius_all(8)
+	normal.shadow_color = Color(0.025, 0.045, 0.032, 0.9)
+	normal.shadow_size = 4 if not compact else 3
+	normal.shadow_offset = Vector2(0, 3)
+	normal.content_margin_left = 8 if compact else 12
+	normal.content_margin_right = 8 if compact else 12
+	var hover := normal.duplicate() as StyleBoxFlat
+	hover.bg_color = Color("385440")
+	hover.border_color = Color("d1b76d")
+	var pressed := normal.duplicate() as StyleBoxFlat
+	pressed.bg_color = Color("17251e")
+	pressed.border_color = Color("dfc174")
+	pressed.border_width_bottom = 1
+	pressed.border_width_top = 3
+	pressed.shadow_size = 0
+	var disabled := normal.duplicate() as StyleBoxFlat
+	disabled.bg_color = Color("202a24")
+	disabled.border_color = Color("3b493f")
+	disabled.shadow_size = 0
+	button.add_theme_stylebox_override("normal", normal)
+	button.add_theme_stylebox_override("hover", hover)
+	button.add_theme_stylebox_override("pressed", pressed)
+	button.add_theme_stylebox_override("disabled", disabled)
+	button.add_theme_stylebox_override("focus", hover)
+	button.add_theme_color_override("font_color", Color("e5dec8"))
+	button.add_theme_color_override("font_hover_color", Color("fff0bd"))
+	button.add_theme_color_override("font_pressed_color", Color("f3d486"))
+	button.add_theme_color_override("font_disabled_color", Color("869085"))
 
 func _panel_line_edit(placeholder: String) -> LineEdit:
 	var field := LineEdit.new()
@@ -515,6 +568,7 @@ func _render_character_panel() -> void:
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.toggle_mode = true
 		button.button_pressed = enhancement_mode == mode
+		_style_button(button, true)
 		button.pressed.connect(_set_enhancement_mode.bind(mode))
 		modes.add_child(button)
 	var keys := {"attack":"공격력", "defense":"방어력", "maxHp":"최대 HP", "critChance":"치명타 확률", "critDamage":"치명타 피해", "goldGain":"골드 획득량", "xpGain":"경험치 획득량"}
@@ -526,7 +580,9 @@ func _render_character_panel() -> void:
 		var text := "%s Lv.%s · %s" % [keys[key], level, details[key]]
 		if enhancement_mode == "gold": text += " · 강화 ◈ %s" % cost
 		else: text += " · 레벨 포인트 1 사용"
-		var button := _panel_button(text, _upgrade_stat.bind(key), level >= (50 if enhancement_mode == "gold" else 100) or (enhancement_mode == "gold" and int(game_state.get("gold", 0)) < cost) or (enhancement_mode == "stats" and _available_points() < 1))
+		var button := _panel_button(text, func(): pass, level >= (50 if enhancement_mode == "gold" else 100) or (enhancement_mode == "gold" and int(game_state.get("gold", 0)) < cost) or (enhancement_mode == "stats" and _available_points() < 1))
+		button.button_down.connect(_begin_hold_upgrade.bind(key, button))
+		button.button_up.connect(_end_hold_upgrade.bind(button))
 		button.add_theme_font_size_override("font_size", 13)
 	_panel_label("사용 가능한 레벨 포인트: %s" % _available_points())
 
@@ -535,6 +591,7 @@ func _set_enhancement_mode(mode: String) -> void:
 	_render_character_panel()
 
 func _upgrade_stat(key: String) -> void:
+	if upgrade_busy: return
 	if GameApi.developer_mode:
 		var upgrades: Dictionary = game_state.get("enhancements", {}).get(enhancement_mode, {})
 		var level := int(upgrades.get(key, 0))
@@ -547,16 +604,31 @@ func _upgrade_stat(key: String) -> void:
 		upgrades[key] = level + 1
 		if key == "maxHp": game_state["hp"] = mini(_combat_stats().max_hp, int(game_state.get("hp", 100)) + (10 if enhancement_mode == "gold" else 5))
 		_apply_game_state()
-		_render_character_panel()
+		if held_upgrade_key.is_empty(): _render_character_panel()
 		return
+	upgrade_busy = true
 	var response: Dictionary = await GameApi.call_api("/api/rpg/character/upgrade", HTTPClient.METHOD_POST, {"mode": enhancement_mode, "key": key})
+	upgrade_busy = false
 	if response.ok:
 		game_state = response.data.get("state", game_state)
 		battle.apply_state(game_state)
 		_on_state_changed(game_state)
-		_render_character_panel()
+		if held_upgrade_key.is_empty(): _render_character_panel()
 	else:
 		_panel_label(response.error)
+
+func _begin_hold_upgrade(key: String, button: Button) -> void:
+	if button.disabled: return
+	held_upgrade_key = key
+	hold_upgrade_button = button
+	held_upgrade_wait = 1.55
+	_upgrade_stat(key)
+
+func _end_hold_upgrade(button: Button) -> void:
+	if hold_upgrade_button != button: return
+	held_upgrade_key = ""
+	hold_upgrade_button = null
+	if is_instance_valid(current_overlay): _render_character_panel()
 
 func _level() -> int:
 	var xp := int(game_state.get("xp", 0))
@@ -632,19 +704,20 @@ func _render_gear_panel() -> void:
 		for item in game_state.get("items", []):
 			if str(item.get("id", "")) == equipped_id: match_item = item
 		var name := str(match_item.get("name", "미장착"))
-		_panel_label("%s · %s" % [{"weapon":"무기", "armor":"갑옷", "helmet":"투구", "boots":"신발", "ring":"반지"}[slot], name])
+		var equipped_row := HBoxContainer.new()
+		overlay_content.add_child(equipped_row)
+		_add_equipment_icon(equipped_row, match_item, slot)
+		var equipped_label := Label.new()
+		equipped_label.text = "%s · %s" % [{"weapon":"무기", "armor":"갑옷", "helmet":"투구", "boots":"신발", "ring":"반지"}[slot], name]
+		equipped_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		equipped_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		equipped_row.add_child(equipped_label)
 	for item in game_state.get("items", []):
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 5)
 		overlay_content.add_child(row)
 		var icon_path := _equipment_icon_path(item)
-		if not icon_path.is_empty() and ResourceLoader.exists(icon_path):
-			var icon := TextureRect.new()
-			icon.custom_minimum_size = Vector2(54, 54)
-			icon.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
-			icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-			icon.texture = load(icon_path)
-			row.add_child(icon)
+		_add_equipment_icon(row, item, str(item.get("slot", "weapon")))
 		var detail := Label.new()
 		detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		detail.text = "%s\n공격 %s · 방어 %s · +%s" % [item.get("name", "장비"), item.get("atk", 0), item.get("def", 0), item.get("enhance", 0)]
@@ -657,22 +730,29 @@ func _render_gear_panel() -> void:
 		equip.text = "장착" if not equipped_now else "장착 중"
 		equip.disabled = equipped_now
 		equip.pressed.connect(_gear_action.bind("equip", str(item.get("id", ""))))
+		_style_button(equip, true)
 		actions.add_child(equip)
 		var upgrade := Button.new()
 		upgrade.text = "강화"
 		upgrade.pressed.connect(_gear_action.bind("upgrade", str(item.get("id", ""))))
+		_style_button(upgrade, true)
 		actions.add_child(upgrade)
 		var salvage := Button.new()
 		salvage.text = "분해"
 		salvage.disabled = equipped_now
 		salvage.pressed.connect(_confirm_salvage.bind(str(item.get("id", ""))))
+		_style_button(salvage, true)
 		actions.add_child(salvage)
 
 func _equipment_icon_path(item: Dictionary) -> String:
 	var key := str(item.get("visualKey", ""))
 	if key.begins_with("bow_"):
 		var names := {"bow_ashwood":"ashwood-bow.png", "bow_moonsteel":"moonsteel-bow.png", "bow_ember":"ember-bow.png", "bow_thornvine":"thornvine-bow.png", "bow_starfall":"starfall-bow.png"}
+		var rare_bows := ["ashwood-bow.png", "moonsteel-bow.png", "ember-bow.png", "thornvine-bow.png", "starfall-bow.png"]
 		if names.has(key): return "res://assets/equipment/" + names[key]
+		if key.begins_with("bow_rare_"):
+			var rare_index := int(key.get_slice("_", 2)) - 1
+			if rare_index >= 0 and rare_index < rare_bows.size(): return "res://assets/equipment/" + rare_bows[rare_index]
 		var tiers := ["epic", "unique", "legendary", "mythic", "immortal"]
 		for tier in tiers:
 			if key.begins_with("bow_" + tier + "_"):
@@ -684,6 +764,37 @@ func _equipment_icon_path(item: Dictionary) -> String:
 			var number := key.get_slice("_", 2)
 			if number.is_valid_int(): return "res://assets/equipment/%s/%s-%s.png" % [slots[prefix], rarity, number]
 	return ""
+
+func _add_equipment_icon(parent: Container, item: Dictionary, slot: String) -> void:
+	var rarity := str(item.get("rarity", "common"))
+	var rarity_colors := {"common":Color("879080"), "uncommon":Color("79a98d"), "rare":Color("639fc1"), "epic":Color("a584c8"), "unique":Color("d8ad61"), "legendary":Color("79b779"), "mythic":Color("eee9d9"), "immortal":Color("df625d")}
+	var frame := PanelContainer.new()
+	frame.custom_minimum_size = Vector2(58, 58)
+	var frame_style := StyleBoxFlat.new()
+	frame_style.bg_color = Color("111913")
+	frame_style.border_color = rarity_colors.get(rarity, Color("75865d"))
+	frame_style.set_border_width_all(2)
+	frame_style.set_corner_radius_all(7)
+	frame.add_theme_stylebox_override("panel", frame_style)
+	parent.add_child(frame)
+	var path := _equipment_icon_path(item)
+	if not path.is_empty() and ResourceLoader.exists(path):
+		var icon := TextureRect.new()
+		icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		icon.offset_left = 4; icon.offset_top = 4; icon.offset_right = -4; icon.offset_bottom = -4
+		icon.expand_mode = TextureRect.EXPAND_FIT_WIDTH_PROPORTIONAL
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.texture = load(path)
+		frame.add_child(icon)
+	else:
+		var glyph := Label.new()
+		glyph.text = str({"weapon":"⚔", "armor":"♜", "helmet":"♙", "boots":"⌁", "ring":"◉"}.get(slot, "◇"))
+		glyph.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		glyph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		glyph.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		glyph.add_theme_font_size_override("font_size", 27)
+		glyph.add_theme_color_override("font_color", rarity_colors.get(rarity, Color("d8c88a")))
+		frame.add_child(glyph)
 
 func _gear_action(action: String, item_id: String) -> void:
 	if GameApi.developer_mode:
@@ -875,21 +986,25 @@ func _render_event_panel() -> void:
 
 func _render_shop_panel() -> void:
 	_make_overlay("상점 & 장비 뽑기")
-	_panel_label("골드 %s · 캐시 %s\n확률: 레어 80%% · 에픽 15%% · 유니크 4%% · 레전드리 0.9%% · 신화 0.09%% · 불멸 0.01%%" % [game_state.get("gold", 0), game_state.get("cash", 0)])
-	var picker := OptionButton.new()
+	_panel_label("골드 %s · 캐시 %s\n원하는 장비 부위를 선택해 전용 뽑기를 열어 주세요." % [game_state.get("gold", 0), game_state.get("cash", 0)])
 	for slot in ["weapon", "ring", "armor", "boots", "helmet"]:
-		picker.add_item({"weapon":"무기", "ring":"반지", "armor":"갑옷", "boots":"신발", "helmet":"투구"}[slot])
-		picker.set_item_metadata(picker.item_count - 1, slot)
-	picker.select(0)
-	picker.item_selected.connect(func(index: int) -> void: gacha_slot = str(picker.get_item_metadata(index)))
-	overlay_content.add_child(picker)
+		var category: String = {"weapon":"무기", "ring":"반지", "armor":"갑옷", "boots":"신발", "helmet":"투구"}[slot]
+		_panel_button("%s 뽑기 열기  ›" % category, _render_shop_category.bind(slot))
+
+func _render_shop_category(slot: String) -> void:
+	gacha_slot = slot
+	var category: String = {"weapon":"무기", "ring":"반지", "armor":"갑옷", "boots":"신발", "helmet":"투구"}.get(slot, "장비")
+	_make_overlay("%s 전용 뽑기" % category)
+	_panel_button("‹ 장비 종류 선택", _render_shop_panel)
+	_panel_label("%s 뽑기 · 골드 %s · 캐시 %s" % [category, game_state.get("gold", 0), game_state.get("cash", 0)])
+	_panel_label("확률: 레어 80% · 에픽 15% · 유니크 4% · 레전드리 0.9% · 신화 0.09% · 불멸 0.01%")
+	var pity: Dictionary = game_state.get("summonPity", {})
+	_panel_label("10회 뽑기는 레어 이상 1개 보장 · 에픽 천장 %s/30 · 레전드리 천장 %s/100" % [pity.get("epic", 0), pity.get("legendary", 0)])
 	for currency in ["gold", "cash"]:
 		var title := "골드" if currency == "gold" else "캐시"
 		_panel_button("1회 · %s %s" % [title, "500" if currency == "gold" else "100"], _summon.bind(currency, 1))
 		_panel_button("10회 · %s %s" % [title, "4,500" if currency == "gold" else "900"], _summon.bind(currency, 10))
 	var history: Array = game_state.get("summonHistory", [])
-	var pity: Dictionary = game_state.get("summonPity", {})
-	_panel_label("천장 진행 · 에픽 %s / 30 · 레전드리 %s / 100" % [pity.get("epic", 0), pity.get("legendary", 0)])
 	if not history.is_empty():
 		_panel_label("최근 뽑기: %s · %s회" % [history[0].get("slot", "장비"), history[0].get("count", 1)])
 
@@ -937,13 +1052,13 @@ func _summon(currency: String, count: int) -> void:
 		game_state["items"] = items
 		game_state["summonPity"] = pity
 		game_state["summonHistory"] = [{"slot":gacha_slot, "count":count}] + game_state.get("summonHistory", []).slice(0, 9)
-		_apply_game_state(); _render_shop_panel(); _panel_label("획득 결과\n" + "\n".join(obtained)); return
+		_apply_game_state(); _render_shop_category(gacha_slot); _panel_label("획득 결과\n" + "\n".join(obtained)); return
 	var response: Dictionary = await GameApi.call_api("/api/rpg/gacha", HTTPClient.METHOD_POST, {"currency": currency, "count": count, "slot": gacha_slot})
 	if response.ok:
 		game_state = response.data.get("state", game_state)
 		battle.apply_state(game_state)
 		_on_state_changed(game_state)
-		_render_shop_panel()
+		_render_shop_category(gacha_slot)
 		var obtained: Array = response.data.get("items", [])
 		var names := PackedStringArray()
 		for item in obtained: names.append(str(item.get("name", "장비")))
@@ -1087,6 +1202,11 @@ func _show_battle_notice(message: String) -> void:
 		battle_notice_label.text = message
 
 func _process(delta: float) -> void:
+	if not held_upgrade_key.is_empty():
+		held_upgrade_wait -= delta
+		if held_upgrade_wait <= 0.0:
+			_upgrade_stat(held_upgrade_key)
+			held_upgrade_wait = 1.55
 	if battle:
 		save_timer += delta
 		if save_timer >= 25.0:
@@ -1126,6 +1246,7 @@ func _logout() -> void:
 	else:
 		await GameApi.logout()
 	_show_auth()
+
 
 
 
