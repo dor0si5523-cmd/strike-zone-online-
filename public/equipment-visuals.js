@@ -45,7 +45,7 @@ export const ARCHER_BOW_CATALOG = Object.freeze(Object.entries(tiers).flatMap(([
     width: rarity === 'rare' ? 42 : 46, height: rarity === 'rare' ? 68 : 38,
     grip: rarity === 'rare' ? { x: 0.44, y: 0.5 } : { x: 0.5, y: 0.5 },
     animation: { swingRadians: 0.035 },
-    shotColor: shotColors[rarity][variant], shotStyle: variant,
+    shotColor: shotColors[rarity][variant], shotStyle: variant, combatBonuses: { attackSpeed: [0,0.025,0.045,0.065,0.085,0.11][['rare','epic','unique','legendary','mythic','immortal'].indexOf(rarity)]||0, critChance: [0.01,0.018,0.026,0.034,0.042,0.05][['rare','epic','unique','legendary','mythic','immortal'].indexOf(rarity)]||0, critDamage: 0.04 + variant*0.012 },
     ...(rarity === 'rare' ? {} : { rotationOffset: Math.PI / 2, frames: { idle: { x: 46, y: 46, w: 420, h: 420 } }, removeBackdrop: true })
   });
 })));

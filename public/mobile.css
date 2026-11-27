@@ -86,3 +86,7 @@
 
 #game.tabs-open #toast{z-index:1}
 
+
+.archer-skills-setting{display:flex!important;align-items:center;gap:8px}.archer-skills-setting[hidden]{display:none!important}.archer-skills-setting input{accent-color:#8fd195}.archer-focus-wrap{grid-column:1/-1;display:grid;grid-template-columns:auto 1fr;align-items:center;gap:10px;color:#bce6cd;font-size:10px}.archer-focus-wrap i{height:6px;overflow:hidden;background:#09100d;border-radius:8px}.archer-focus-wrap b{display:block;width:100%;height:100%;background:linear-gradient(90deg,#5bbd8b,#b8edbb);transition:width .18s}
+
+.archer-focus-wrap[hidden]{display:none!important}

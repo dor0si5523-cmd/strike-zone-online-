@@ -41,7 +41,7 @@ function kstWeekKey(date = new Date()) {
 }
 function previousDayKey(dayKey) { const previous = new Date(`${dayKey}T00:00:00Z`); previous.setUTCDate(previous.getUTCDate() - 1); return previous.toISOString().slice(0, 10); }
 const RPG_UPGRADE_KEYS = ['attack', 'defense', 'maxHp', 'critChance', 'critDamage', 'goldGain', 'xpGain'];
-const DEFAULT_RPG = Object.freeze({ xp: 0, gold: 40, cash: 300, kills: 0, enhancements: { gold: Object.fromEntries(RPG_UPGRADE_KEYS.map(key => [key, 0])), stats: Object.fromEntries(RPG_UPGRADE_KEYS.map(key => [key, 0])) }, questStage: 0, questKills: 0, potions: 3, x: 1300, y: 1070, hp: 100, items: STARTER_ITEMS, equipment: { weapon: 'starter_blade', armor: 'starter_coat', helmet: '', boots: 'starter_boots', ring: 'starter_ring' }, autoSettings: { range: 'balanced', target: 'nearest', potionAt: 45, autoQuest: true, arrowType: 'standard' }, summonPity: { epic: 0, legendary: 0 }, summonHistory: [], attendance: { lastDay: '', streak: 0 }, daily: { dayKey: kstDayKey(), kills: 0, attendanceClaimed: false, missionClaimed: false }, weekly: { weekKey: kstWeekKey(), kills: 0, missionClaimed: false }, zoneId: 'forest', classId: 'warrior' });
+const DEFAULT_RPG = Object.freeze({ xp: 0, gold: 40, cash: 300, archerFocus: 100, kills: 0, enhancements: { gold: Object.fromEntries(RPG_UPGRADE_KEYS.map(key => [key, 0])), stats: Object.fromEntries(RPG_UPGRADE_KEYS.map(key => [key, 0])) }, questStage: 0, questKills: 0, potions: 3, x: 1300, y: 1070, hp: 100, items: STARTER_ITEMS, equipment: { weapon: 'starter_blade', armor: 'starter_coat', helmet: '', boots: 'starter_boots', ring: 'starter_ring' }, autoSettings: { range: 'balanced', target: 'nearest', potionAt: 45, autoQuest: true, arrowType: 'standard', autoSkills: true }, summonPity: { epic: 0, legendary: 0 }, summonHistory: [], attendance: { lastDay: '', streak: 0 }, daily: { dayKey: kstDayKey(), kills: 0, attendanceClaimed: false, missionClaimed: false }, weekly: { weekKey: kstWeekKey(), kills: 0, missionClaimed: false }, zoneId: 'forest', classId: 'warrior' });
 const GACHA_PRICES = { gold: { 1: 500, 10: 4500 }, cash: { 1: 100, 10: 900 } };
 const GACHA_PITY = { epic: 30, legendary: 100 };
 const DUPLICATE_GOLD = { common: 80, uncommon: 150, rare: 350, epic: 1200, unique: 2200, legendary: 4000, mythic: 8000, immortal: 16000 };
@@ -247,6 +247,7 @@ function sanitizeRpg(value = {}) {
     xp: Math.floor(number('xp', 0, 999999, DEFAULT_RPG.xp)),
     gold: Math.floor(number('gold', 0, 9999999, DEFAULT_RPG.gold)),
     cash: Math.floor(number('cash', 0, 99999999, DEFAULT_RPG.cash)),
+    archerFocus: Math.max(0, Math.min(100, Number(value.archerFocus ?? DEFAULT_RPG.archerFocus) || 0)),
     kills: Math.floor(number('kills', 0, 999999, DEFAULT_RPG.kills)),
     questStage: Math.floor(number('questStage', 0, 2, DEFAULT_RPG.questStage)),
     questKills: Math.floor(number('questKills', 0, 999, DEFAULT_RPG.questKills)),
@@ -276,7 +277,8 @@ function sanitizeRpg(value = {}) {
       target: ['nearest', 'weakest', 'boss', 'cluster'].includes(value.autoSettings?.target) ? value.autoSettings.target : DEFAULT_RPG.autoSettings.target,
       potionAt: [30, 45, 60].includes(Number(value.autoSettings?.potionAt)) ? Number(value.autoSettings.potionAt) : DEFAULT_RPG.autoSettings.potionAt,
       autoQuest: value.autoSettings?.autoQuest !== false,
-      arrowType: ['standard', 'piercing', 'multi', 'explosive'].includes(value.autoSettings?.arrowType) ? value.autoSettings.arrowType : DEFAULT_RPG.autoSettings.arrowType
+      arrowType: ['standard', 'piercing', 'multi', 'explosive'].includes(value.autoSettings?.arrowType) ? value.autoSettings.arrowType : DEFAULT_RPG.autoSettings.arrowType,
+      autoSkills: value.autoSettings?.autoSkills !== false
     },
     summonPity: {
       epic: Math.floor(numberFrom(value.summonPity?.epic, 0, GACHA_PITY.epic - 1, 0)),
