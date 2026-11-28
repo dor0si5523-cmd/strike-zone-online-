@@ -46,7 +46,6 @@ const RPG_UPGRADE_KEYS = ['attack', 'defense', 'maxHp', 'critChance', 'critDamag
 const DEFAULT_RPG = Object.freeze({ xp: 0, gold: 40, cash: 300, archerFocus: 100, kills: 0, enhancements: { gold: Object.fromEntries(RPG_UPGRADE_KEYS.map(key => [key, 0])), stats: Object.fromEntries(RPG_UPGRADE_KEYS.map(key => [key, 0])) }, questStage: 0, questKills: 0, potions: 3, x: 1300, y: 1070, hp: 100, items: STARTER_ITEMS, equipment: { weapon: 'starter_blade', armor: 'starter_coat', helmet: '', boots: 'starter_boots', ring: 'starter_ring' }, autoSettings: { range: 'balanced', target: 'nearest', potionAt: 45, autoQuest: true, arrowType: 'standard', autoSkills: true }, summonPity: { epic: 0, legendary: 0 }, summonHistory: [], attendance: { lastDay: '', streak: 0 }, daily: { dayKey: kstDayKey(), kills: 0, attendanceClaimed: false, missionClaimed: false }, weekly: { weekKey: kstWeekKey(), kills: 0, missionClaimed: false }, zoneId: 'forest', classId: 'warrior' });
 const GACHA_PRICES = { gold: { 1: 500, 10: 4500 }, cash: { 1: 100, 10: 900 } };
 const GACHA_PITY = { epic: 30, legendary: 100 };
-const DUPLICATE_GOLD = { common: 80, uncommon: 150, rare: 350, epic: 1200, unique: 2200, legendary: 4000, mythic: 8000, immortal: 16000 };
 const GEAR_RARITY = ['common', 'uncommon', 'rare', 'epic', 'unique', 'legendary', 'mythic', 'immortal'];
 const CLASS_WEAPON_NAMES = { warrior: ['바위산 파쇄검', '수호자의 대검', '검은나무 장검'], mage: ['별무리 마도서', '서리 마력 지팡이', '황혼 수정봉'], gunner: ['쌍달 권총', '붉은 해적총', '폭풍 플린트락'] };
 const ARCHER_BOWS = [
@@ -883,7 +882,7 @@ app.post('/api/rpg/gacha', userRateLimit(12), async (req, res) => {
       state[currency] -= price;
       const level = characterLevel(state.xp);
       const results = [], newItems = [];
-      let rarePlus = false, duplicateCount = 0, goldRefund = 0;
+      let rarePlus = false;
       for (let index = 0; index < count; index++) {
         let forcedRarity = null;
         if (state.summonPity.legendary >= GACHA_PITY.legendary - 1) forcedRarity = 'legendary';
@@ -896,28 +895,23 @@ app.post('/api/rpg/gacha', userRateLimit(12), async (req, res) => {
         if (isEpicPlus) state.summonPity.epic = 0;
         else state.summonPity.epic = Math.min(GACHA_PITY.epic - 1, state.summonPity.epic + 1);
         rarePlus ||= GEAR_RARITY.indexOf(gear.rarity) >= GEAR_RARITY.indexOf('rare');
-        const duplicate = state.items.some(item => item.slot === gear.slot && item.name === gear.name) || newItems.some(item => item.slot === gear.slot && item.name === gear.name);
-        if (duplicate) {
-          gear.duplicate = true;
-          gear.goldRefund = DUPLICATE_GOLD[gear.rarity];
-          duplicateCount++;
-          goldRefund += gear.goldRefund;
-        } else newItems.push(gear);
+        // Every draw is a separate owned item. Repeated gear keeps its own ID
+        // and remains available for equip, upgrade, or salvage.
+        newItems.push(gear);
         results.push(gear);
       }
-      if (state.items.length + newItems.length > 60) throw new Error('INVENTORY_FULL');
+      if (state.items.length + count > 60) throw new Error('INVENTORY_FULL');
       state.items.push(...newItems);
-      state.gold = Math.min(9999999, state.gold + goldRefund);
-      const history = { at: Date.now(), currency, count, cost: price, slot, duplicateCount, goldRefund, items: results.map(item => ({ name: item.name, slot: item.slot, rarity: item.rarity, duplicate: item.duplicate === true, goldRefund: item.goldRefund || 0 })) };
+      const history = { at: Date.now(), currency, count, cost: price, slot, duplicateCount: 0, goldRefund: 0, items: results.map(item => ({ name: item.name, slot: item.slot, rarity: item.rarity, duplicate: false, goldRefund: 0 })) };
       state.summonHistory = [history, ...state.summonHistory].slice(0, 10);
       character.state = { ...state, classId: character.classId };
-      outcome = { ok: true, currency, cost: price, count, slot, items: results, duplicateCount, goldRefund, pity: state.summonPity, state: sanitizeRpg(character.state) };
+      outcome = { ok: true, currency, cost: price, count, slot, items: results, duplicateCount: 0, goldRefund: 0, pity: state.summonPity, state: sanitizeRpg(character.state) };
     });
     if (!account || !outcome) return res.status(503).json({ error: '뽑기 결과를 저장하지 못했습니다.' });
     res.json(outcome);
   } catch (error) {
     if (error.message === 'INSUFFICIENT_CURRENCY') return res.status(409).json({ error: currency === 'gold' ? '골드가 부족합니다.' : '캐시가 부족합니다.' });
-    if (error.message === 'INVENTORY_FULL') return res.status(409).json({ error: '장비 가방 공간이 부족합니다. 중복 장비는 골드로 보상됩니다.' });
+    if (error.message === 'INVENTORY_FULL') return res.status(409).json({ error: '장비 가방 공간이 부족합니다. 먼저 장비를 분해해 공간을 확보해 주세요.' });
     if (error.message === 'CHARACTER_NOT_FOUND') return res.status(404).json({ error: '캐릭터를 찾을 수 없습니다.' });
     res.status(503).json({ error: '뽑기 결과를 저장하지 못했습니다.' });
   }
@@ -1001,3 +995,4 @@ io.on('connection', socket => {
   socket.on('disconnect', () => removeRaidMember(socket));
 });
 server.listen(port, '0.0.0.0');
+

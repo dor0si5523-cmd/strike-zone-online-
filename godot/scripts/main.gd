@@ -1015,29 +1015,111 @@ func _render_event_panel() -> void:
 
 func _render_shop_panel() -> void:
 	_make_overlay("상점 & 장비 뽑기")
-	_panel_label("골드 %s · 캐시 %s\n원하는 장비 부위를 선택해 전용 뽑기를 열어 주세요." % [game_state.get("gold", 0), game_state.get("cash", 0)])
-	for slot in ["weapon", "ring", "armor", "boots", "helmet"]:
-		var category: String = {"weapon":"무기", "ring":"반지", "armor":"갑옷", "boots":"신발", "helmet":"투구"}[slot]
-		_panel_button("%s 뽑기 열기  ›" % category, _render_shop_category.bind(slot))
-
-func _render_shop_category(slot: String) -> void:
-	gacha_slot = slot
-	var category: String = {"weapon":"무기", "ring":"반지", "armor":"갑옷", "boots":"신발", "helmet":"투구"}.get(slot, "장비")
-	_make_overlay("%s 전용 뽑기" % category)
-	_panel_button("‹ 장비 종류 선택", _render_shop_panel)
-	_panel_label("%s 뽑기 · 골드 %s · 캐시 %s" % [category, game_state.get("gold", 0), game_state.get("cash", 0)])
-	_panel_label("확률: 레어 80% · 에픽 15% · 유니크 4% · 레전드리 0.9% · 신화 0.09% · 불멸 0.01%")
+	_panel_label("골드 %s · 캐시 %s\n장비 종류별 뽑기를 바로 진행할 수 있습니다." % [game_state.get("gold", 0), game_state.get("cash", 0)])
+	_panel_label("레어 80% · 에픽 15% · 유니크 4% · 레전드리 0.9% · 신화 0.09% · 불멸 0.01%")
 	var pity: Dictionary = game_state.get("summonPity", {})
-	_panel_label("10회 뽑기는 레어 이상 1개 보장 · 에픽 천장 %s/30 · 레전드리 천장 %s/100" % [pity.get("epic", 0), pity.get("legendary", 0)])
-	for currency in ["gold", "cash"]:
-		var title := "골드" if currency == "gold" else "캐시"
-		_panel_button("1회 · %s %s" % [title, "500" if currency == "gold" else "100"], _summon.bind(currency, 1))
-		_panel_button("10회 · %s %s" % [title, "4,500" if currency == "gold" else "900"], _summon.bind(currency, 10))
-	var history: Array = game_state.get("summonHistory", [])
-	if not history.is_empty():
-		_panel_label("최근 뽑기: %s · %s회" % [history[0].get("slot", "장비"), history[0].get("count", 1)])
+	_panel_label("천장 · 에픽 %s/30 · 레전드리 %s/100" % [pity.get("epic", 0), pity.get("legendary", 0)])
+	var slots := ["weapon", "armor", "helmet", "boots", "ring"]
+	var names := {"weapon":"무기", "armor":"갑옷", "helmet":"투구", "boots":"신발", "ring":"반지"}
+	for slot in slots:
+		var card := PanelContainer.new()
+		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var card_style := StyleBoxFlat.new()
+		card_style.bg_color = Color("101a15")
+		card_style.border_color = Color("52644a")
+		card_style.set_border_width_all(1)
+		card_style.set_corner_radius_all(7)
+		card_style.content_margin_left = 8
+		card_style.content_margin_right = 8
+		card_style.content_margin_top = 5
+		card_style.content_margin_bottom = 5
+		card.add_theme_stylebox_override("panel", card_style)
+		overlay_content.add_child(card)
+		var body := VBoxContainer.new()
+		body.add_theme_constant_override("separation", 4)
+		card.add_child(body)
+		var heading := Label.new()
+		heading.text = "%s 뽑기" % names[slot]
+		heading.add_theme_color_override("font_color", Color("e7c87b"))
+		heading.add_theme_font_size_override("font_size", 17)
+		body.add_child(heading)
+		for currency in ["gold", "cash"]:
+			var line := HBoxContainer.new()
+			line.add_theme_constant_override("separation", 5)
+			body.add_child(line)
+			var currency_label := Label.new()
+			currency_label.text = "골드" if currency == "gold" else "캐시"
+			currency_label.custom_minimum_size.x = 42
+			currency_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			line.add_child(currency_label)
+			for amount in [1, 10]:
+				var cost := (500 if amount == 1 else 4500) if currency == "gold" else (100 if amount == 1 else 900)
+				var button := Button.new()
+				button.text = "%s회 · %s" % [amount, _format_number(cost)]
+				button.custom_minimum_size = Vector2(70, 38)
+				button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				_style_button(button, true)
+				button.pressed.connect(_summon.bind(currency, amount, slot))
+				line.add_child(button)
 
-func _summon(currency: String, count: int) -> void:
+func _format_number(value: int) -> String:
+	var source := str(value)
+	var formatted := ""
+	for index in range(source.length()):
+		if index > 0 and (source.length() - index) % 3 == 0: formatted += ","
+		formatted += source.substr(index, 1)
+	return formatted
+
+func _show_summon_results(slot: String, items: Array, currency: String, count: int) -> void:
+	var names := {"weapon":"무기", "armor":"갑옷", "helmet":"투구", "boots":"신발", "ring":"반지"}
+	_make_overlay("뽑기 결과")
+	_panel_label("%s 뽑기 · %s회 · %s개 획득" % [names.get(slot, "장비"), count, items.size()])
+	var grouped: Dictionary = {}
+	for item in items:
+		if not item is Dictionary: continue
+		var key := "%s|%s|%s" % [item.get("slot", slot), item.get("visualKey", ""), item.get("name", "장비")]
+		if not grouped.has(key): grouped[key] = {"item":item, "count":0}
+		grouped[key]["count"] = int(grouped[key]["count"]) + 1
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 7)
+	grid.add_theme_constant_override("v_separation", 7)
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	overlay_content.add_child(grid)
+	for result in grouped.values():
+		var item: Dictionary = result["item"]
+		var card := PanelContainer.new()
+		card.custom_minimum_size = Vector2(0, 68)
+		card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var card_style := StyleBoxFlat.new()
+		card_style.bg_color = Color("101a15")
+		card_style.border_color = Color("52644a")
+		card_style.set_border_width_all(1)
+		card_style.set_corner_radius_all(6)
+		card.add_theme_stylebox_override("panel", card_style)
+		grid.add_child(card)
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 5)
+		card.add_child(row)
+		_add_equipment_icon(row, item, str(item.get("slot", slot)))
+		var details := VBoxContainer.new()
+		details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		details.alignment = BoxContainer.ALIGNMENT_CENTER
+		row.add_child(details)
+		var gear_name := Label.new()
+		gear_name.text = str(item.get("name", "장비"))
+		gear_name.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		gear_name.add_theme_font_size_override("font_size", 13)
+		details.add_child(gear_name)
+		var amount := Label.new()
+		amount.text = "×%s 획득" % result["count"]
+		amount.add_theme_color_override("font_color", Color("e7c87b"))
+		amount.add_theme_font_size_override("font_size", 12)
+		details.add_child(amount)
+	_panel_button("확인", _render_shop_panel)
+
+func _summon(currency: String, count: int, slot: String) -> void:
+	gacha_slot = slot
 	if GameApi.developer_mode:
 		var cost := (500 if count == 1 else 4500) if currency == "gold" else (100 if count == 1 else 900)
 		if int(game_state.get(currency, 0)) < cost: _panel_label("재화가 부족합니다."); return
@@ -1045,10 +1127,9 @@ func _summon(currency: String, count: int) -> void:
 		if items.size() + count > 60: _panel_label("가방 공간이 부족합니다."); return
 		game_state[currency] = int(game_state.get(currency, 0)) - cost
 		var tiers := [{"id":"rare", "weight":8000, "label":"레어", "mult":1.8}, {"id":"epic", "weight":1500, "label":"에픽", "mult":2.5}, {"id":"unique", "weight":400, "label":"유니크", "mult":3.1}, {"id":"legendary", "weight":90, "label":"레전드리", "mult":4.1}, {"id":"mythic", "weight":9, "label":"신화", "mult":5.3}, {"id":"immortal", "weight":1, "label":"불멸", "mult":7.0}]
-		var obtained := PackedStringArray()
+		var obtained: Array = []
 		var pity: Dictionary = game_state.get("summonPity", {"epic":0, "legendary":0})
 		var rare_plus := false
-		var duplicate_gold := {"rare":350, "epic":1200, "unique":2200, "legendary":4000, "mythic":8000, "immortal":16000}
 		for index in range(count):
 			var roll := randi_range(0, 9999); var edge := 0; var tier: Dictionary = tiers[0]
 			for candidate in tiers:
@@ -1068,30 +1149,20 @@ func _summon(currency: String, count: int) -> void:
 			var visual := ("bow_%s_%s" % [rarity, number]) if gacha_slot == "weapon" and game_state.get("classId") == "archer" else "%s_%s_%s" % [gacha_slot, rarity, number]
 			var base := maxi(1, roundi(float(_level()) * float(tier.mult) * 2.5))
 			var gear_name := "%s %s %s" % [tier.label, slot_names[gacha_slot], number]
-			var item := {"id":"gacha_%s_%s" % [Time.get_ticks_msec(), index], "visualKey":visual, "name":gear_name, "slot":gacha_slot, "rarity":rarity, "atk":base if gacha_slot == "weapon" else maxi(1, floori(base * 0.4)) if gacha_slot == "ring" else 0, "def":floori(base * 0.22) if gacha_slot == "weapon" else maxi(1, floori(base * (0.55 if gacha_slot == "ring" else 0.8))), "enhance":0}
-			var duplicate := false
-			for owned in items:
-				if str(owned.get("name", "")) == gear_name and str(owned.get("slot", "")) == gacha_slot: duplicate = true; break
-			if duplicate:
-				item["duplicate"] = true
-				item["goldRefund"] = int(duplicate_gold.get(rarity, 80))
-				game_state["gold"] = mini(9999999, int(game_state.get("gold", 0)) + int(item.goldRefund))
-			else: items.append(item)
-			obtained.append(str(item.name) + (" · 중복 골드 +%s" % item.goldRefund if duplicate else ""))
+			var item := {"id":"gacha_%s_%s" % [Time.get_ticks_usec(), index], "visualKey":visual, "name":gear_name, "slot":gacha_slot, "rarity":rarity, "atk":base if gacha_slot == "weapon" else maxi(1, floori(base * 0.4)) if gacha_slot == "ring" else 0, "def":floori(base * 0.22) if gacha_slot == "weapon" else maxi(1, floori(base * (0.55 if gacha_slot == "ring" else 0.8))), "enhance":0}
+			items.append(item)
+			obtained.append(item.duplicate(true))
 		game_state["items"] = items
 		game_state["summonPity"] = pity
-		game_state["summonHistory"] = [{"slot":gacha_slot, "count":count}] + game_state.get("summonHistory", []).slice(0, 9)
-		_apply_game_state(); _render_shop_category(gacha_slot); _panel_label("획득 결과\n" + "\n".join(obtained)); return
-	var response: Dictionary = await GameApi.call_api("/api/rpg/gacha", HTTPClient.METHOD_POST, {"currency": currency, "count": count, "slot": gacha_slot})
+		game_state["summonHistory"] = [{"slot":gacha_slot, "count":count, "currency":currency}] + game_state.get("summonHistory", []).slice(0, 9)
+		_apply_game_state(); _show_summon_results(gacha_slot, obtained, currency, count); return
+	var response: Dictionary = await GameApi.call_api("/api/rpg/gacha", HTTPClient.METHOD_POST, {"currency": currency, "count": count, "slot": slot})
 	if response.ok:
 		game_state = response.data.get("state", game_state)
 		battle.apply_state(game_state)
 		_on_state_changed(game_state)
-		_render_shop_category(gacha_slot)
 		var obtained: Array = response.data.get("items", [])
-		var names := PackedStringArray()
-		for item in obtained: names.append(str(item.get("name", "장비")))
-		_panel_label("획득 결과\n" + "\n".join(names))
+		_show_summon_results(slot, obtained, currency, count)
 	else:
 		_panel_label(response.error)
 
@@ -1275,6 +1346,7 @@ func _logout() -> void:
 	else:
 		await GameApi.logout()
 	_show_auth()
+
 
 
 
