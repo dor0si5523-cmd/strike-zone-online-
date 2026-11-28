@@ -792,7 +792,7 @@ func _render_gear_panel() -> void:
 			row_contents.add_child(detail)
 
 func _on_gear_row_input(event: InputEvent, item: Dictionary) -> void:
-	var activated := event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT
+	var activated: bool = event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT
 	if event is InputEventScreenTouch:
 		activated = event.pressed
 	if activated:
