@@ -44,7 +44,7 @@ function kstWeekKey(date = new Date()) {
 function previousDayKey(dayKey) { const previous = new Date(`${dayKey}T00:00:00Z`); previous.setUTCDate(previous.getUTCDate() - 1); return previous.toISOString().slice(0, 10); }
 const RPG_UPGRADE_KEYS = ['attack', 'defense', 'maxHp', 'critChance', 'critDamage', 'goldGain', 'xpGain'];
 const DEFAULT_RPG = Object.freeze({ xp: 0, gold: 40, cash: 300, archerFocus: 100, kills: 0, enhancements: { gold: Object.fromEntries(RPG_UPGRADE_KEYS.map(key => [key, 0])), stats: Object.fromEntries(RPG_UPGRADE_KEYS.map(key => [key, 0])) }, questStage: 0, questKills: 0, potions: 3, x: 1300, y: 1070, hp: 100, items: STARTER_ITEMS, equipment: { weapon: 'starter_blade', armor: 'starter_coat', helmet: '', boots: 'starter_boots', ring: 'starter_ring' }, autoSettings: { range: 'balanced', target: 'nearest', potionAt: 45, autoQuest: true, arrowType: 'standard', autoSkills: true }, summonPity: { epic: 0, legendary: 0 }, summonHistory: [], attendance: { lastDay: '', streak: 0 }, daily: { dayKey: kstDayKey(), kills: 0, attendanceClaimed: false, missionClaimed: false }, weekly: { weekKey: kstWeekKey(), kills: 0, missionClaimed: false }, zoneId: 'forest', classId: 'warrior' });
-const GACHA_PRICES = { gold: { 1: 500, 10: 4500 }, cash: { 1: 100, 10: 900 } };
+const GACHA_PRICES = { cash: { 1: 100, 10: 900 } };
 const GACHA_PITY = { epic: 30, legendary: 100 };
 const GEAR_RARITY = ['common', 'uncommon', 'rare', 'epic', 'unique', 'legendary', 'mythic', 'immortal'];
 const CLASS_WEAPON_NAMES = { warrior: ['바위산 파쇄검', '수호자의 대검', '검은나무 장검'], mage: ['별무리 마도서', '서리 마력 지팡이', '황혼 수정봉'], gunner: ['쌍달 권총', '붉은 해적총', '폭풍 플린트락'] };
@@ -871,6 +871,7 @@ app.post('/api/rpg/gacha', userRateLimit(12), async (req, res) => {
   const count = Number(req.body?.count);
   const slot = req.body?.slot || 'weapon';
   if (!['weapon', 'ring', 'armor', 'boots', 'helmet'].includes(slot)) return res.status(400).json({ error: '뽑을 장비 종류를 확인해 주세요.' });
+  if (currency !== 'cash') return res.status(400).json({ error: '장비 뽑기는 캐시로만 이용할 수 있습니다.' });
   const price = GACHA_PRICES[currency]?.[count];
   if (!price) return res.status(400).json({ error: '뽑기 횟수와 재화를 확인해 주세요.' });
   try {
