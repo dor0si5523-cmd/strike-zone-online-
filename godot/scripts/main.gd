@@ -697,52 +697,87 @@ func _combat_stats() -> Dictionary:
 
 func _render_gear_panel() -> void:
 	_make_overlay("장비")
-	_panel_label("장착 장비의 능력치는 자동 전투에 반영됩니다. 사냥 보상으로 장비가 드롭되지 않으며, 상점 뽑기에서만 획득합니다.")
+	_panel_label("장착 장비의 능력치는 자동 전투에 반영됩니다.")
+	var slot_names := {"weapon":"무기", "armor":"갑옷", "helmet":"투구", "boots":"신발", "ring":"반지"}
+	var equipped_items: Dictionary = {}
 	for slot in ["weapon", "armor", "helmet", "boots", "ring"]:
 		var equipped_id: String = str(game_state.get("equipment", {}).get(slot, ""))
 		var match_item: Dictionary = {}
 		for item in game_state.get("items", []):
 			if str(item.get("id", "")) == equipped_id: match_item = item
-		var name := str(match_item.get("name", "미장착"))
-		var equipped_row := HBoxContainer.new()
-		overlay_content.add_child(equipped_row)
-		_add_equipment_icon(equipped_row, match_item, slot)
-		var equipped_label := Label.new()
-		equipped_label.text = "%s · %s" % [{"weapon":"무기", "armor":"갑옷", "helmet":"투구", "boots":"신발", "ring":"반지"}[slot], name]
-		equipped_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		equipped_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		equipped_row.add_child(equipped_label)
-	for item in game_state.get("items", []):
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 5)
-		overlay_content.add_child(row)
-		var icon_path := _equipment_icon_path(item)
-		_add_equipment_icon(row, item, str(item.get("slot", "weapon")))
-		var detail := Label.new()
-		detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		detail.text = "%s\n공격 %s · 방어 %s · +%s" % [item.get("name", "장비"), item.get("atk", 0), item.get("def", 0), item.get("enhance", 0)]
-		detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		row.add_child(detail)
-		var actions := VBoxContainer.new()
-		row.add_child(actions)
-		var equipped_now: bool = str(game_state.get("equipment", {}).get(str(item.get("slot", "")), "")) == str(item.get("id", ""))
-		var equip := Button.new()
-		equip.text = "장착" if not equipped_now else "장착 중"
-		equip.disabled = equipped_now
-		equip.pressed.connect(_gear_action.bind("equip", str(item.get("id", ""))))
-		_style_button(equip, true)
-		actions.add_child(equip)
-		var upgrade := Button.new()
-		upgrade.text = "강화"
-		upgrade.pressed.connect(_gear_action.bind("upgrade", str(item.get("id", ""))))
-		_style_button(upgrade, true)
-		actions.add_child(upgrade)
-		var salvage := Button.new()
-		salvage.text = "분해"
-		salvage.disabled = equipped_now
-		salvage.pressed.connect(_confirm_salvage.bind(str(item.get("id", ""))))
-		_style_button(salvage, true)
-		actions.add_child(salvage)
+		equipped_items[slot] = match_item
+	_panel_label("장착 모습 · 슬롯을 눌러 장비를 확인하세요")
+	var avatar_host := CenterContainer.new()
+	avatar_host.custom_minimum_size.y = 258
+	avatar_host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	overlay_content.add_child(avatar_host)
+	var avatar := Control.new()
+	avatar.custom_minimum_size = Vector2(250, 250)
+	avatar.clip_contents = true
+	avatar_host.add_child(avatar)
+	var mannequin := Panel.new()
+	mannequin.position = Vector2(83, 12); mannequin.size = Vector2(84, 226)
+	var mannequin_style := StyleBoxFlat.new()
+	mannequin_style.bg_color = Color("263a31"); mannequin_style.border_color = Color("71815d")
+	mannequin_style.set_border_width_all(2); mannequin_style.set_corner_radius_all(18)
+	mannequin.add_theme_stylebox_override("panel", mannequin_style); avatar.add_child(mannequin)
+	var head := Panel.new(); head.position = Vector2(105, 21); head.size = Vector2(40, 42)
+	var head_style := StyleBoxFlat.new(); head_style.bg_color = Color("35483b"); head_style.set_corner_radius_all(18)
+	head.add_theme_stylebox_override("panel", head_style); avatar.add_child(head)
+	var body := Panel.new(); body.position = Vector2(92, 70); body.size = Vector2(66, 92)
+	var body_style := StyleBoxFlat.new(); body_style.bg_color = Color("435043"); body_style.set_corner_radius_all(12)
+	body.add_theme_stylebox_override("panel", body_style); avatar.add_child(body)
+	for leg_x in [94, 127]:
+		var leg := Panel.new(); leg.position = Vector2(leg_x, 163); leg.size = Vector2(25, 64)
+		var leg_style := StyleBoxFlat.new(); leg_style.bg_color = Color("35443a"); leg_style.set_corner_radius_all(8)
+		leg.add_theme_stylebox_override("panel", leg_style); avatar.add_child(leg)
+	var slot_positions := {"helmet":Vector2(101, 0), "armor":Vector2(12, 80), "weapon":Vector2(190, 80), "boots":Vector2(101, 190), "ring":Vector2(12, 145)}
+	for slot in ["helmet", "armor", "weapon", "boots", "ring"]:
+		var gear: Dictionary = equipped_items.get(slot, {})
+		var frame := _add_equipment_icon(avatar, gear, slot, Vector2(48, 48))
+		frame.position = slot_positions[slot]
+		frame.tooltip_text = "%s · %s" % [slot_names[slot], gear.get("name", "미장착")]
+	var inventory: Array = game_state.get("items", [])
+	var rarity_order := ["immortal", "mythic", "legendary", "unique", "epic", "rare", "uncommon", "common"]
+	var rarity_names := {"immortal":"불멸", "mythic":"신화", "legendary":"레전드리", "unique":"유니크", "epic":"에픽", "rare":"레어", "uncommon":"고급", "common":"일반"}
+	_panel_label("보유 장비 · 등급별 수량")
+	for rarity in rarity_order:
+		var rarity_items: Array = inventory.filter(func(item): return str(item.get("rarity", "common")) == rarity)
+		if rarity_items.is_empty(): continue
+		var heading := Label.new()
+		heading.text = "%s · %d개" % [rarity_names.get(rarity, rarity), rarity_items.size()]
+		heading.add_theme_color_override("font_color", {"immortal":Color("df625d"), "mythic":Color("eee9d9"), "legendary":Color("79b779"), "unique":Color("d8ad61"), "epic":Color("a584c8"), "rare":Color("639fc1")}.get(rarity, Color("d8c88a")))
+		overlay_content.add_child(heading)
+		for item in rarity_items:
+			var row := HBoxContainer.new()
+			row.add_theme_constant_override("separation", 5)
+			overlay_content.add_child(row)
+			_add_equipment_icon(row, item, str(item.get("slot", "weapon")))
+			var detail := Label.new()
+			detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			detail.text = "%s\n%s · 공격 %s · 방어 %s · +%s" % [item.get("name", "장비"), slot_names.get(str(item.get("slot", "weapon")), "장비"), item.get("atk", 0), item.get("def", 0), item.get("enhance", 0)]
+			detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			row.add_child(detail)
+			var actions := VBoxContainer.new()
+			row.add_child(actions)
+			var equipped_now: bool = str(game_state.get("equipment", {}).get(str(item.get("slot", "")), "")) == str(item.get("id", ""))
+			var equip := Button.new()
+			equip.text = "장착" if not equipped_now else "장착 중"
+			equip.disabled = equipped_now
+			equip.pressed.connect(_gear_action.bind("equip", str(item.get("id", ""))))
+			_style_button(equip, true)
+			actions.add_child(equip)
+			var upgrade := Button.new()
+			upgrade.text = "강화"
+			upgrade.pressed.connect(_gear_action.bind("upgrade", str(item.get("id", ""))))
+			_style_button(upgrade, true)
+			actions.add_child(upgrade)
+			var salvage := Button.new()
+			salvage.text = "분해"
+			salvage.disabled = equipped_now
+			salvage.pressed.connect(_confirm_salvage.bind(str(item.get("id", ""))))
+			_style_button(salvage, true)
+			actions.add_child(salvage)
 
 func _equipment_icon_path(item: Dictionary) -> String:
 	var key := str(item.get("visualKey", ""))
@@ -786,12 +821,12 @@ func _equipment_icon_path(item: Dictionary) -> String:
 			if number.is_valid_int(): return "res://assets/equipment/%s/%s-%s.png" % [slots[prefix], rarity, number]
 	return ""
 
-func _add_equipment_icon(parent: Container, item: Dictionary, slot: String) -> void:
+func _add_equipment_icon(parent: Control, item: Dictionary, slot: String, icon_size: Vector2 = Vector2(58, 58)) -> PanelContainer:
 	var rarity := str(item.get("rarity", "common"))
 	var rarity_colors := {"common":Color("879080"), "uncommon":Color("79a98d"), "rare":Color("639fc1"), "epic":Color("a584c8"), "unique":Color("d8ad61"), "legendary":Color("79b779"), "mythic":Color("eee9d9"), "immortal":Color("df625d")}
 	var frame := PanelContainer.new()
-	frame.custom_minimum_size = Vector2(58, 58)
-	frame.size = Vector2(58, 58)
+	frame.custom_minimum_size = icon_size
+	frame.size = icon_size
 	frame.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	frame.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	frame.clip_contents = true
@@ -824,6 +859,7 @@ func _add_equipment_icon(parent: Container, item: Dictionary, slot: String) -> v
 		glyph.add_theme_font_size_override("font_size", 27)
 		glyph.add_theme_color_override("font_color", rarity_colors.get(rarity, Color("d8c88a")))
 		frame.add_child(glyph)
+	return frame
 
 func _gear_action(action: String, item_id: String) -> void:
 	if GameApi.developer_mode:
@@ -1015,7 +1051,7 @@ func _render_event_panel() -> void:
 
 func _render_shop_panel() -> void:
 	_make_overlay("상점 & 장비 뽑기")
-	_panel_label("골드 %s · 캐시 %s\n장비 종류별 뽑기를 바로 진행할 수 있습니다." % [game_state.get("gold", 0), game_state.get("cash", 0)])
+	_panel_label("캐시 %s · 장비 뽑기는 캐시로만 이용할 수 있습니다." % game_state.get("cash", 0))
 	_panel_label("레어 80% · 에픽 15% · 유니크 4% · 레전드리 0.9% · 신화 0.09% · 불멸 0.01%")
 	var pity: Dictionary = game_state.get("summonPity", {})
 	_panel_label("천장 · 에픽 %s/30 · 레전드리 %s/100" % [pity.get("epic", 0), pity.get("legendary", 0)])
@@ -1043,24 +1079,23 @@ func _render_shop_panel() -> void:
 		heading.add_theme_color_override("font_color", Color("e7c87b"))
 		heading.add_theme_font_size_override("font_size", 17)
 		body.add_child(heading)
-		for currency in ["gold", "cash"]:
-			var line := HBoxContainer.new()
-			line.add_theme_constant_override("separation", 5)
-			body.add_child(line)
-			var currency_label := Label.new()
-			currency_label.text = "골드" if currency == "gold" else "캐시"
-			currency_label.custom_minimum_size.x = 42
-			currency_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-			line.add_child(currency_label)
-			for amount in [1, 10]:
-				var cost := (500 if amount == 1 else 4500) if currency == "gold" else (100 if amount == 1 else 900)
-				var button := Button.new()
-				button.text = "%s회 · %s" % [amount, _format_number(cost)]
-				button.custom_minimum_size = Vector2(70, 38)
-				button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-				_style_button(button, true)
-				button.pressed.connect(_summon.bind(currency, amount, slot))
-				line.add_child(button)
+		var line := HBoxContainer.new()
+		line.add_theme_constant_override("separation", 5)
+		body.add_child(line)
+		var currency_label := Label.new()
+		currency_label.text = "캐시"
+		currency_label.custom_minimum_size.x = 42
+		currency_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		line.add_child(currency_label)
+		for amount in [1, 10]:
+			var cost := 100 if amount == 1 else 900
+			var button := Button.new()
+			button.text = "%s회 · %s" % [amount, _format_number(cost)]
+			button.custom_minimum_size = Vector2(70, 38)
+			button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			_style_button(button, true)
+			button.pressed.connect(_summon.bind("cash", amount, slot))
+			line.add_child(button)
 
 func _format_number(value: int) -> String:
 	var source := str(value)
@@ -1119,9 +1154,12 @@ func _show_summon_results(slot: String, items: Array, currency: String, count: i
 	_panel_button("확인", _render_shop_panel)
 
 func _summon(currency: String, count: int, slot: String) -> void:
+	if currency != "cash":
+		_panel_label("장비 뽑기는 캐시로만 이용할 수 있습니다.")
+		return
 	gacha_slot = slot
 	if GameApi.developer_mode:
-		var cost := (500 if count == 1 else 4500) if currency == "gold" else (100 if count == 1 else 900)
+		var cost := 100 if count == 1 else 900
 		if int(game_state.get(currency, 0)) < cost: _panel_label("재화가 부족합니다."); return
 		var items: Array = game_state.get("items", [])
 		if items.size() + count > 60: _panel_label("가방 공간이 부족합니다."); return
