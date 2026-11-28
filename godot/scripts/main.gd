@@ -409,9 +409,8 @@ func _enter_battle() -> void:
 	battle_nav.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
 	battle_nav.offset_left = 8
 	battle_nav.offset_right = -8
-	var nav_columns := 9 if get_viewport_rect().size.x >= 640.0 else 5
-	var nav_height := 66.0 if nav_columns == 9 else 124.0
-	battle_nav.offset_top = -nav_height
+	var nav_columns := 9
+	battle_nav.offset_top = -68
 	battle_nav.offset_bottom = -8
 	battle_nav.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	battle_nav.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -419,16 +418,16 @@ func _enter_battle() -> void:
 	var menu := GridContainer.new()
 	menu.columns = nav_columns
 	menu.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	menu.add_theme_constant_override("h_separation", 5)
+	menu.add_theme_constant_override("h_separation", 2)
 	menu.add_theme_constant_override("v_separation", 5)
 	battle_nav.add_child(menu)
 	for title in ["캐릭터", "장비", "스킬", "던전", "퀘스트", "상점&뽑기", "이벤트", "우편함", "메뉴"]:
 		var b := Button.new()
 		b.text = title
-		b.custom_minimum_size = Vector2(0, 56)
+		b.custom_minimum_size = Vector2(0, 60)
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		b.add_theme_font_size_override("font_size", 12 if nav_columns == 9 else 11)
+		b.add_theme_font_size_override("font_size", 10)
 		_style_button(b, true)
 		b.pressed.connect(_open_game_panel.bind(title))
 		menu.add_child(b)
