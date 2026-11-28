@@ -44,9 +44,17 @@ var hold_upgrade_button: Button
 func _ready() -> void:
 	_build_shell()
 	if not GameApi.token.is_empty() and not GameApi.server_id.is_empty() and not GameApi.character_id.is_empty():
+		_show_loading("저장된 모험을 불러오는 중…", "계정과 캐릭터 정보를 확인하고 있습니다.")
 		call_deferred("_resume_session")
 	else:
 		_show_auth()
+
+func _show_loading(title: String, message: String) -> void:
+	_clear_page()
+	_heading("ASHEN VALE", title)
+	var status := _label(message + "\n잠시 기다려 주세요.")
+	status.add_theme_font_size_override("font_size", 16)
+	status.add_theme_color_override("font_color", Color("d8c88a"))
 
 func _build_shell() -> void:
 	var backdrop := ColorRect.new()
@@ -176,6 +184,7 @@ func _resume_session() -> void:
 	var selected: Dictionary = await GameApi.select_server(GameApi.server_id)
 	if not selected.ok:
 		_show_auth()
+		_set_status("저장된 세션을 불러오지 못했습니다. 다시 로그인해 주세요. · " + selected.error)
 		return
 	characters = selected.data.get("characters", [])
 	var found := false
@@ -193,6 +202,7 @@ func _resume_session() -> void:
 	var loaded: Dictionary = await GameApi.call_api("/api/rpg")
 	if not loaded.ok:
 		_show_auth()
+		_set_status("모험 정보를 불러오지 못했습니다. 다시 로그인해 주세요. · " + loaded.error)
 		return
 	game_state = loaded.data
 	last_saved_kills = int(game_state.get("kills", 0))
@@ -201,11 +211,14 @@ func _resume_session() -> void:
 func _show_servers() -> void:
 	_clear_page()
 	_heading("서버 선택", "모험을 이어갈 서버를 선택하세요.")
+	status_label = _label("서버 목록을 불러오는 중…")
+	status_label.add_theme_color_override("font_color", Color("d8c88a"))
 	var response: Dictionary = await GameApi.call_api("/api/rpg/servers")
 	if not response.ok:
 		_show_auth()
 		_set_status(response.error)
 		return
+	status_label.visible = false
 	for server in response.data.get("servers", []):
 		var server_id := str(server.get("id", ""))
 		var title := str(server.get("name", SERVER_NAMES.get(server_id, server_id)))
