@@ -862,6 +862,7 @@ app.post('/api/rpg/character/upgrade', userRateLimit(40), async (req, res) => {
     res.status(status).json({ error: ({ CHARACTER_NOT_FOUND: '캐릭터를 찾을 수 없습니다.', INSUFFICIENT_GOLD: '골드가 부족합니다.', UPGRADE_MAX: '이미 최대 강화입니다.', NO_POINTS: '사용 가능한 레벨업 포인트가 없습니다.' })[error.message] || '강화를 저장하지 못했습니다.' });
   }
 });
+// Repeated rolls remain separate inventory items; there is no duplicate-gold exchange.
 app.post('/api/rpg/gacha', userRateLimit(12), async (req, res) => {
   const session = requestSession(req);
   if (!session) return res.sendStatus(401);
@@ -995,4 +996,5 @@ io.on('connection', socket => {
   socket.on('disconnect', () => removeRaidMember(socket));
 });
 server.listen(port, '0.0.0.0');
+
 
