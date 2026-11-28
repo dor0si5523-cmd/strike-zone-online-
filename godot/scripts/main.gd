@@ -756,35 +756,86 @@ func _render_gear_panel() -> void:
 		heading.add_theme_color_override("font_color", {"immortal":Color("df625d"), "mythic":Color("eee9d9"), "legendary":Color("79b779"), "unique":Color("d8ad61"), "epic":Color("a584c8"), "rare":Color("639fc1")}.get(rarity, Color("d8c88a")))
 		overlay_content.add_child(heading)
 		for item in rarity_items:
-			var row := HBoxContainer.new()
-			row.add_theme_constant_override("separation", 5)
+			var row := PanelContainer.new()
+			row.custom_minimum_size.y = 68
+			row.mouse_filter = Control.MOUSE_FILTER_STOP
+			row.gui_input.connect(_on_gear_row_input.bind(item.duplicate(true)))
+			var row_style := StyleBoxFlat.new()
+			row_style.bg_color = Color("111a15")
+			row_style.border_color = Color("52644a")
+			row_style.set_border_width_all(1)
+			row_style.set_corner_radius_all(6)
+			row.add_theme_stylebox_override("panel", row_style)
 			overlay_content.add_child(row)
-			_add_equipment_icon(row, item, str(item.get("slot", "weapon")))
+			var row_contents := HBoxContainer.new()
+			row_contents.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			row_contents.add_theme_constant_override("separation", 7)
+			row.add_child(row_contents)
+			_add_equipment_icon(row_contents, item, str(item.get("slot", "weapon")))
 			var detail := Label.new()
+			detail.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			detail.text = "%s\n%s · 공격 %s · 방어 %s · +%s" % [item.get("name", "장비"), slot_names.get(str(item.get("slot", "weapon")), "장비"), item.get("atk", 0), item.get("def", 0), item.get("enhance", 0)]
+			detail.text = "%s\n%s · 공격 %s · 방어 %s · +%s   ›" % [item.get("name", "장비"), slot_names.get(str(item.get("slot", "weapon")), "장비"), item.get("atk", 0), item.get("def", 0), item.get("enhance", 0)]
 			detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			row.add_child(detail)
-			var actions := VBoxContainer.new()
-			row.add_child(actions)
-			var equipped_now: bool = str(game_state.get("equipment", {}).get(str(item.get("slot", "")), "")) == str(item.get("id", ""))
-			var equip := Button.new()
-			equip.text = "장착" if not equipped_now else "장착 중"
-			equip.disabled = equipped_now
-			equip.pressed.connect(_gear_action.bind("equip", str(item.get("id", ""))))
-			_style_button(equip, true)
-			actions.add_child(equip)
-			var upgrade := Button.new()
-			upgrade.text = "강화"
-			upgrade.pressed.connect(_gear_action.bind("upgrade", str(item.get("id", ""))))
-			_style_button(upgrade, true)
-			actions.add_child(upgrade)
-			var salvage := Button.new()
-			salvage.text = "분해"
-			salvage.disabled = equipped_now
-			salvage.pressed.connect(_confirm_salvage.bind(str(item.get("id", ""))))
-			_style_button(salvage, true)
-			actions.add_child(salvage)
+			row_contents.add_child(detail)
+
+func _on_gear_row_input(event: InputEvent, item: Dictionary) -> void:
+	var activated := event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT
+	if event is InputEventScreenTouch:
+		activated = event.pressed
+	if activated:
+		_show_gear_detail(item)
+
+func _show_gear_detail(item: Dictionary) -> void:
+	var slot := str(item.get("slot", "weapon"))
+	var slot_names := {"weapon":"무기", "armor":"갑옷", "helmet":"투구", "boots":"신발", "ring":"반지"}
+	var rarity_names := {"immortal":"불멸", "mythic":"신화", "legendary":"레전드리", "unique":"유니크", "epic":"에픽", "rare":"레어", "uncommon":"고급", "common":"일반"}
+	var equipped_now := str(game_state.get("equipment", {}).get(slot, "")) == str(item.get("id", ""))
+	_make_overlay("장비 상세")
+	var preview := CenterContainer.new()
+	preview.custom_minimum_size.y = 190
+	preview.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	overlay_content.add_child(preview)
+	_add_equipment_icon(preview, item, slot, Vector2(176, 176))
+	var name_label := Label.new()
+	name_label.text = str(item.get("name", "장비"))
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_label.add_theme_font_size_override("font_size", 20)
+	name_label.add_theme_color_override("font_color", {"immortal":Color("df625d"), "mythic":Color("eee9d9"), "legendary":Color("79b779"), "unique":Color("d8ad61"), "epic":Color("a584c8"), "rare":Color("639fc1")}.get(str(item.get("rarity", "common")), Color("d8c88a")))
+	overlay_content.add_child(name_label)
+	var stats := Label.new()
+	stats.text = "%s · %s%s\n공격력 +%s\n방어력 +%s\n강화 +%s%s" % [slot_names.get(slot, "장비"), rarity_names.get(str(item.get("rarity", "common")), "일반"), " · 장착 중" if equipped_now else "", item.get("atk", 0), item.get("def", 0), item.get("enhance", 0), "\n전투 능력치에 적용 중" if equipped_now else ""]
+	stats.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	stats.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	stats.add_theme_font_size_override("font_size", 16)
+	overlay_content.add_child(stats)
+	var actions := HBoxContainer.new()
+	actions.add_theme_constant_override("separation", 7)
+	overlay_content.add_child(actions)
+	var equip := Button.new()
+	equip.text = "장착 중" if equipped_now else "장착"
+	equip.disabled = equipped_now
+	equip.custom_minimum_size = Vector2(0, 48)
+	equip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_style_button(equip, true)
+	equip.pressed.connect(_gear_action.bind("equip", str(item.get("id", ""))))
+	actions.add_child(equip)
+	var upgrade := Button.new()
+	upgrade.text = "강화"
+	upgrade.custom_minimum_size = Vector2(0, 48)
+	upgrade.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_style_button(upgrade, true)
+	upgrade.pressed.connect(_gear_action.bind("upgrade", str(item.get("id", ""))))
+	actions.add_child(upgrade)
+	var salvage := Button.new()
+	salvage.text = "분해"
+	salvage.disabled = equipped_now
+	salvage.custom_minimum_size = Vector2(0, 48)
+	salvage.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_style_button(salvage, true)
+	salvage.pressed.connect(_confirm_salvage.bind(str(item.get("id", ""))))
+	actions.add_child(salvage)
+	_panel_button("닫기", _render_gear_panel)
 
 func _equipment_icon_path(item: Dictionary) -> String:
 	var key := str(item.get("visualKey", ""))
